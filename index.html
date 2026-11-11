@@ -163,7 +163,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 
 <nav id="nav" hidden><div class="in">
   <button data-v="hoy" onclick="ir('hoy')">Hoy</button>
-  <button data-v="mov" onclick="ir('mov')">Movimientos</button>
+  <button data-v="pedidos" onclick="ir('pedidos')">Pedidos<span class="pin" id="pinP" hidden></span></button>
   <button class="fab" onclick="abrirHoja('venta')" aria-label="Registrar">+</button>
   <button data-v="faltan" onclick="ir('faltan')">Faltan<span class="pin" id="pinF" hidden></span></button>
   <button data-v="mas" onclick="ir('mas')">Más</button>
@@ -179,7 +179,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.4";
+const VERSION = "2.5";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -207,7 +207,7 @@ const suma = (a, k) => a.reduce((t, x) => t + (+x[k] || 0), 0);
    - cloud  : Firestore propio, si config.js trae las claves
    - local  : IndexedDB, solo este celular, 100% sin internet
    ============================================================ */
-const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes", "viajes"];
+const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes", "viajes", "pedidos"];
 
 function depositoLocal() {
   const cache = {}, oyentes = {};
@@ -267,7 +267,7 @@ function depositoClaude(db) {
 
 // Cuánto pasado se trae cada colección. Acota la lectura para no salirse
 // nunca del plan gratuito, y alcanza de sobra para los reportes de 90 días.
-const VENTANA = { ventas: 150, gastos: 150, fichajes: 150, viajes: 150, cierres: 400 };
+const VENTANA = { ventas: 150, gastos: 150, fichajes: 150, viajes: 150, cierres: 400, pedidos: 60 };
 
 function depositoFirestore(auth, bd) {
   let pend = 0;
@@ -306,7 +306,7 @@ const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro",
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 
 let D = null;                                  // depósito
-let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [];
+let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [], PD = [];
 let vista = "hoy", dia = HOY(), linea = "Ice Cream";
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
 let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
@@ -493,7 +493,10 @@ function vHoy() {
     : [];
   const pagos = PAGOS.map(p => [p, suma(r.v.filter(x => x.pago === p), "total")]).filter(x => x[1] > 0);
 
+  const nvs = nuevos();
   return `
+  ${nvs && puedeVender() ? `<div class="urgente" style="cursor:pointer;background:var(--yel);color:#0a2650" onclick="ir('pedidos')">
+      ${nvs} pedido${nvs > 1 ? "s" : ""} nuevo${nvs > 1 ? "s" : ""} esperando. Tocá para verlos.</div>` : ""}
   ${tarjetaFichaje()}${tarjetaViaje()}
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
@@ -584,6 +587,72 @@ function vJornada() {
   <ul class="list" style="margin-top:10px"><li><span>Recorrido de hoy</span><b class="tnum">${km(kmEntre(quien, HOY()))}</b></li>
   <li><span>Esta semana</span><b class="tnum">${km(kmEntre(quien, lunesDe(HOY())))}</b></li></ul>` : ""}
   <p class="hint">La ubicación se registra únicamente mientras tenés un viaje abierto y la app en pantalla. Al cerrar el viaje, se apaga.</p>`;
+}
+
+const ESTADOS = { nuevo: "Entró recién", haciendo: "Lo están preparando", listo: "Listo para entregar" };
+const pendientes = () => PD.filter(p => p.estado !== "entregado" && p.estado !== "cancelado")
+  .sort((a, b) => a.ts - b.ts);
+const nuevos = () => PD.filter(p => p.estado === "nuevo").length;
+
+function vPedidos() {
+  const abiertos = pendientes(), hechos = PD.filter(p => p.dia === dia && p.estado === "entregado");
+  return `<h2>Pedidos por atender</h2>
+  ${abiertos.length ? `<ul class="list">${abiertos.map(p => `
+    <li style="display:block;${p.estado === "nuevo" ? "border-color:var(--yel)" : ""}">
+      <div style="display:flex;justify-content:space-between;gap:12px">
+        <div class="ls"><b>${p.numero} · ${esc(p.nombre)}</b>
+          <small>${esc(ESTADOS[p.estado] || p.estado)} · ${hora(p.ts)}</small>
+          <small>${esc((p.items || []).map(i => i.n + (i.s && i.s.length ? " (" + i.s.join(", ") + ")" : "")).join("; "))}</small>
+          <small>${p.entrega === "lleva" ? "Llevar a " + esc(p.direccion) : "Lo pasa a buscar"} · ${esc(p.telefono)}</small>
+        </div>
+        <div class="r"><b class="tnum">${$$(p.total)}</b></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        ${p.estado === "nuevo" ? `<button class="chip" onclick="estadoPedido('${p.id}','haciendo')">Lo preparo</button>` : ""}
+        ${p.estado === "haciendo" ? `<button class="chip" onclick="estadoPedido('${p.id}','listo')">Ya está listo</button>` : ""}
+        <button class="chip ok" onclick="entregarPedido('${p.id}')">Entregado y cobrado</button>
+        ${esDueno() ? `<button class="chip" onclick="estadoPedido('${p.id}','cancelado')">Cancelar</button>` : ""}
+      </div>
+    </li>`).join("")}</ul>`
+    : `<p class="vacio">No hay pedidos esperando. Cuando entre uno, aparece acá solo.</p>`}
+
+  <h2>Entregados ${dia === HOY() ? "hoy" : "el " + lindo(dia)}</h2>
+  ${hechos.length ? `<ul class="list">${hechos.sort((a, b) => b.ts - a.ts).map(p => `
+    <li><div class="ls"><b>${p.numero} · ${esc(p.nombre)}</b><small>${hora(p.ts)}</small></div>
+    <b class="tnum r">${$$(p.total)}</b></li>`).join("")}</ul>` : `<p class="vacio">Todavía ninguno.</p>`}
+
+  <div class="card" style="margin-top:18px">
+    <b>El link para tus clientes</b>
+    <p class="hint" style="margin:6px 0 0">Mandáselo por WhatsApp o pegalo en un cartel con código QR.</p>
+    <input readonly id="linkPedir" value="${location.origin + location.pathname.replace(/[^/]*$/, "")}pedir.html" onclick="this.select()" style="margin-top:8px">
+    <button class="btn ghost" onclick="copiarLink(this)">Copiar el link</button>
+  </div>`;
+}
+async function copiarLink(b) {
+  try { await navigator.clipboard.writeText($("#linkPedir").value); b.textContent = "Copiado"; setTimeout(() => b.textContent = "Copiar el link", 2000); }
+  catch (e) { $("#linkPedir").select(); b.textContent = "Tocá Copiar en el teclado"; }
+}
+const estadoPedido = (id, e) => D.guardar("pedidos", id, { estado: e }).catch(fallo);
+
+// Entregar un pedido lo convierte en venta: congela precios y descuenta el stock,
+// igual que una venta del mostrador.
+async function entregarPedido(id) {
+  const p = PD.find(x => x.id === id); if (!p) return;
+  try {
+    await D.guardar("ventas", D.nuevoId(), {
+      dia: HOY(), ts: Date.now(), por: quien, pago: "Efectivo", pedido: p.numero,
+      items: p.items || [], total: p.total, costo: (p.items || []).reduce((t, i) => t + (i.c || 0), 0),
+    });
+    const bajas = {};
+    (p.items || []).forEach(i => {
+      if (!i.kg || !i.s || !i.s.length) return;
+      const porSabor = i.kg / i.s.length / KG_BALDE;
+      i.s.forEach(n => { const k = MENU.indexOf(n); if (k >= 0) bajas[k] = (bajas[k] || 0) + porSabor; });
+    });
+    for (const k of Object.keys(bajas)) await reponer(+k, -bajas[k], true);
+    await D.guardar("pedidos", id, { estado: "entregado" });
+    notificar("Pedido " + p.numero + " cobrado: " + $$(p.total));
+  } catch (e) { fallo(e); }
 }
 
 function vPersonal() {
@@ -688,6 +757,7 @@ function vFaltan() {
 
 function vMas() {
   const todos = [
+    ["mov", "Movimientos del día", "Cada venta y cada gasto, con hora y quién lo cargó", true],
     ["personal", esDueno() ? "Personal y horarios" : "Mis horas y viajes",
       enNube() ? (esDueno() ? "Quién está trabajando y cuántas horas lleva" : "Lo que llevás trabajado") : "Necesita conectar la nube", true],
     ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia", true],
@@ -1119,8 +1189,8 @@ async function importar() {
 /* ============================================================
    PINTAR
    ============================================================ */
-const VISTAS = { hoy: vHoy, mov: vMov, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal, jornada: vJornada };
-const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas" };
+const VISTAS = { hoy: vHoy, mov: vMov, pedidos: vPedidos, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal, jornada: vJornada };
+const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas", mov: "mas" };
 
 function pintar() {
   if (!D) return;
@@ -1137,6 +1207,9 @@ function pintar() {
   const cr = criticos();
   $("#pinF").hidden = !cr.length;
   $("#pinF").textContent = cr.length;
+  const nvs = nuevos();
+  $("#pinP").hidden = !nvs;
+  $("#pinP").textContent = nvs;
 
   if (esCadete() && !["jornada"].includes(vista)) vista = "jornada";
   const atras = PADRE[vista];
@@ -1224,7 +1297,7 @@ function pantallaInstalar() {
 
 async function encender() {
   const destinos = { productos: x => P = x, sabores: x => S = x, ventas: x => V = x, gastos: x => G = x,
-                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x, viajes: x => VJ = x };
+                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x, viajes: x => VJ = x, pedidos: x => PD = x };
   COLS.forEach(col => D.ver(col, datos => {
     destinos[col](datos.slice().sort((a, b) => (b.ts || b.entrada || 0) - (a.ts || a.entrada || 0) || (a.ord || 0) - (b.ord || 0)));
     if (col === "productos") P.sort((a, b) => (a.ord || 0) - (b.ord || 0));

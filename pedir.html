@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a2650">
+<title>Pedir en Frigo</title>
+<link href="https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Pedido para alguien que nunca usó un celular: una sola pregunta por pantalla,
+   botones enormes, palabras de todos los días. */
+:root{--bg:#0a2650;--card:#17437c;--line:#2f5e9c;--ink:#fff;--mute:#b8cde6;
+  --mag:#c0307a;--yel:#f3d65a;--entra:#3ecf8e;color-scheme:dark;
+  padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:#0a2650}
+html,body{overscroll-behavior:none}
+body{margin:0;background:var(--bg);color:var(--ink);font:600 19px/1.45 Poppins,system-ui,sans-serif;touch-action:manipulation}
+main{max-width:520px;margin:0 auto;
+  padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));
+  padding-block:16px calc(130px + env(safe-area-inset-bottom,0px))}
+.brand{font:400 40px/1 "Kaushan Script",cursive;text-align:center}
+.sw{display:block;height:6px;width:90px;border-radius:6px;background:var(--mag);margin:2px auto 14px}
+h1{font-size:29px;line-height:1.2;margin:14px 0 4px;text-wrap:balance}
+.ayuda{color:var(--mute);font-size:17px;font-weight:500;margin:0 0 16px}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:4px solid var(--yel);outline-offset:3px}
+.op{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;
+  background:var(--card);border:3px solid var(--line);border-radius:22px;padding:20px 22px;margin-bottom:12px;text-align:left;min-height:94px}
+.op b{font-size:22px}
+.op small{display:block;color:var(--mute);font-size:15px;font-weight:500}
+.op .pre{font-size:22px;color:var(--yel);white-space:nowrap}
+.op.on{border-color:var(--entra);background:#15553c}
+.op.on .tic:after{content:"✓";color:var(--entra);font-size:26px}
+.op[disabled]{opacity:.35}
+.grande{display:block;width:100%;background:var(--entra);color:#06281c;border:0;border-radius:999px;
+  padding:22px;font-size:22px;font-weight:700;margin-top:6px}
+.grande[disabled]{opacity:.35}
+.atras{display:block;width:100%;background:none;border:3px solid var(--line);border-radius:999px;
+  padding:16px;font-size:18px;margin-top:12px;color:var(--mute)}
+input{width:100%;background:var(--card);border:3px solid var(--line);border-radius:18px;
+  padding:18px;font:600 21px Poppins,sans-serif;color:var(--ink)}
+input::placeholder{color:#7d99bd;font-weight:500}
+.pie{position:fixed;left:0;right:0;bottom:0;background:#0c2e5c;border-top:3px solid var(--line);
+  padding:14px max(18px,env(safe-area-inset-left,0px)) calc(14px + env(safe-area-inset-bottom,0px))}
+.pie .in{max-width:520px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.pie small{display:block;color:var(--mute);font-size:14px;font-weight:500}
+.pie b{font-size:26px}
+.listo{text-align:center;padding:24px 0}
+.num{font-size:84px;font-weight:700;color:var(--yel);line-height:1.05;margin:10px 0}
+.res{background:var(--card);border:3px solid var(--line);border-radius:22px;padding:18px;text-align:left;margin:18px 0}
+.res div{display:flex;justify-content:space-between;gap:12px;margin:5px 0}
+.aviso{background:var(--yel);color:#0a2650;border-radius:18px;padding:16px;font-size:17px;margin-bottom:14px}
+.paso{color:var(--mute);font-size:15px;font-weight:500;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<main id="app"><p class="ayuda">Abriendo…</p></main>
+<div class="pie" id="pie" hidden><div class="in">
+  <div><small id="pieTxt">Tu pedido</small><b class="tnum" id="pieTot">$0</b></div>
+  <button class="grande" style="width:auto;padding:16px 28px;margin:0" id="pieBtn" onclick="siguiente()">Seguir</button>
+</div></div>
+<script src="config.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const $$ = c => { const v = Math.round((c || 0) / 100); return "$" + v.toLocaleString("es-AR"); };
+const pad = n => String(n).padStart(2, "0");
+const HOY = () => { const d = new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); };
+
+let bd = null, P = [], S = [], agotados = [];
+let paso = "que", elegido = null, sabores = [], entrega = null;
+let datos = { nombre: "", telefono: "", direccion: "" }, numero = null, enviando = false;
+
+const MENU = ["Chocolate","Chocolate blanco","Chocolate Frigo","Chocolate Rocher","Chocolate a la cubana","Dulce de leche","Dulce de leche Crocante","Dulce de leche con Nuez","Dulce leche granizado","Dulce de leche Frigo","Tramontana","Flan","Frutilla","Frutilla Frigo","Americana","Vainilla","Cereza","Frambuesa","Bananita Dolca","Banana Split","Oreo","Roclets","Menta Granizada","Crema del Cielo","Durazno","Ananá","Limón","Mango","Sandía","Granizado","Frutos del bosque","Mantecol","Kinotos al whisky","Kinder"];
+
+function pintar() {
+  const a = $("#app"); let h = `<div class="brand">Frigo</div><i class="sw"></i>`;
+  let pie = false, txtBtn = "Seguir", puede = false, total = elegido ? elegido.precio : 0;
+
+  if (paso === "que") {
+    h += `<p class="paso">Paso 1 de 4</p><h1>¿Qué querés llevar?</h1>
+      <p class="ayuda">Tocá lo que quieras pedir.</p>`;
+    if (!P.length) h += `<p class="ayuda">Todavía no hay nada cargado. Llamanos y te atendemos.</p>`;
+    P.forEach(p => { h += `<button class="op${elegido && elegido.id === p.id ? " on" : ""}" onclick="elegir('${p.id}')">
+      <span><b>${esc(p.nombre)}</b>${p.mx ? `<small>Elegís ${p.mx} gusto${p.mx > 1 ? "s" : ""}</small>` : ""}</span>
+      <span class="pre">${$$(p.precio)}</span></button>`; });
+    pie = !!elegido; puede = !!elegido;
+
+  } else if (paso === "gustos") {
+    const faltan = elegido.mx - sabores.length;
+    h += `<p class="paso">Paso 2 de 4</p><h1>¿Qué gustos?</h1>
+      <p class="ayuda">${faltan > 0 ? `Tocá ${faltan} gusto${faltan > 1 ? "s" : ""} más.` : "Ya elegiste todos. Tocá Seguir."}</p>`;
+    MENU.forEach((s, i) => {
+      const no = agotados.includes(s);
+      h += `<button class="op${sabores.includes(s) ? " on" : ""}" ${no ? "disabled" : ""} onclick="tocarGusto(${i})">
+        <span><b>${esc(s)}</b>${no ? `<small>Hoy no hay</small>` : ""}</span><span class="tic"></span></button>`;
+    });
+    h += `<button class="atras" onclick="volver()">Volver atrás</button>`;
+    pie = true; puede = sabores.length === elegido.mx;
+
+  } else if (paso === "donde") {
+    h += `<p class="paso">Paso 3 de 4</p><h1>¿Lo pasás a buscar?</h1>
+      <p class="ayuda">Elegí una de las dos.</p>
+      <button class="op${entrega === "retira" ? " on" : ""}" onclick="entrega='retira';pintar()">
+        <span><b>Lo paso a buscar</b><small>Vas vos al local</small></span><span class="tic"></span></button>
+      <button class="op${entrega === "lleva" ? " on" : ""}" onclick="entrega='lleva';pintar()">
+        <span><b>Me lo traen</b><small>Te lo llevamos a tu casa</small></span><span class="tic"></span></button>
+      <button class="atras" onclick="volver()">Volver atrás</button>`;
+    pie = true; puede = !!entrega;
+
+  } else if (paso === "datos") {
+    h += `<p class="paso">Paso 4 de 4</p><h1>¿Cómo te llamás?</h1>
+      <p class="ayuda">Para saber de quién es el pedido.</p>
+      <input id="nombre" value="${esc(datos.nombre)}" placeholder="Tu nombre" autocomplete="name" oninput="datos.nombre=this.value;revisar()">
+      <p class="ayuda" style="margin-top:18px">Tu teléfono, por si necesitamos llamarte.</p>
+      <input id="tel" value="${esc(datos.telefono)}" placeholder="Teléfono" inputmode="tel" autocomplete="tel" oninput="datos.telefono=this.value;revisar()">
+      ${entrega === "lleva" ? `<p class="ayuda" style="margin-top:18px">¿A qué dirección te lo llevamos?</p>
+      <input id="dir" value="${esc(datos.direccion)}" placeholder="Calle y número" autocomplete="street-address" oninput="datos.direccion=this.value;revisar()">` : ""}
+      <button class="atras" onclick="volver()">Volver atrás</button>`;
+    pie = true; txtBtn = enviando ? "Enviando…" : "Hacer el pedido"; puede = listoParaPedir() && !enviando;
+
+  } else {
+    h += `<div class="listo">
+      <div class="aviso">Listo, ${esc(datos.nombre.split(" ")[0] || "")}. Ya lo estamos preparando.</div>
+      <p class="ayuda" style="margin:0">Tu número de pedido es</p>
+      <div class="num tnum">${numero}</div>
+      <p class="ayuda">${entrega === "retira" ? "Decí este número cuando llegues al local." : "Te lo llevamos a " + esc(datos.direccion) + "."}</p>
+      <div class="res">
+        <div><span>${esc(elegido.nombre)}</span><b>${$$(elegido.precio)}</b></div>
+        ${sabores.length ? `<div><span style="color:var(--mute)">${esc(sabores.join(", "))}</span><span></span></div>` : ""}
+        <div style="border-top:2px solid var(--line);padding-top:10px;margin-top:10px"><b>Total</b><b>${$$(elegido.precio)}</b></div>
+      </div>
+      <button class="grande" onclick="otroPedido()">Hacer otro pedido</button>
+    </div>`;
+  }
+
+  a.innerHTML = h;
+  $("#pie").hidden = !pie;
+  if (pie) { $("#pieTot").textContent = $$(total); $("#pieBtn").textContent = txtBtn; $("#pieBtn").disabled = !puede;
+    $("#pieTxt").textContent = elegido ? elegido.nombre : "Tu pedido"; }
+  window.scrollTo(0, 0);
+}
+
+function revisar() {
+  const p = listoParaPedir() && !enviando;
+  if ($("#pieBtn")) $("#pieBtn").disabled = !p;
+}
+const listoParaPedir = () => datos.nombre.trim().length > 1 && datos.telefono.trim().length > 5
+  && (entrega !== "lleva" || datos.direccion.trim().length > 3);
+
+function elegir(id) { elegido = P.find(p => p.id === id); sabores = []; pintar(); }
+function tocarGusto(i) {
+  const s = MENU[i], k = sabores.indexOf(s);
+  if (k >= 0) sabores.splice(k, 1);
+  else { if (sabores.length >= elegido.mx) sabores.shift(); sabores.push(s); }
+  pintar();
+}
+function siguiente() {
+  if (paso === "que") paso = elegido.mx ? "gustos" : "donde";
+  else if (paso === "gustos") paso = "donde";
+  else if (paso === "donde") paso = "datos";
+  else if (paso === "datos") return enviar();
+  pintar();
+}
+function volver() {
+  if (paso === "gustos") paso = "que";
+  else if (paso === "donde") paso = elegido.mx ? "gustos" : "que";
+  else if (paso === "datos") paso = "donde";
+  pintar();
+}
+function otroPedido() { paso = "que"; elegido = null; sabores = []; entrega = null; numero = null; pintar(); }
+
+async function enviar() {
+  if (enviando || !bd) return;
+  enviando = true; pintar();
+  const n = Math.floor(100 + Math.random() * 900);
+  try {
+    const ref = bd.collection("pedidos").doc();
+    await ref.set({
+      id: ref.id, numero: n, dia: HOY(), ts: Date.now(), estado: "nuevo",
+      uid: firebase.auth().currentUser.uid,
+      nombre: datos.nombre.trim().slice(0, 60), telefono: datos.telefono.trim().slice(0, 30),
+      entrega, direccion: (datos.direccion || "").trim().slice(0, 120),
+      items: [{ n: elegido.nombre, p: elegido.precio, c: elegido.costo || 0, kg: elegido.kg || 0, s: sabores.slice() }],
+      total: elegido.precio,
+    });
+    numero = n; paso = "listo";
+  } catch (e) {
+    alertaSuave("No pudimos enviar el pedido. Revisá que tengas internet y probá de nuevo.");
+  }
+  enviando = false; pintar();
+}
+function alertaSuave(t) {
+  const d = document.createElement("div"); d.className = "aviso"; d.textContent = t;
+  $("#app").prepend(d); setTimeout(() => d.remove(), 6000);
+}
+
+(async function arrancar() {
+  try {
+    const v = "10.14.1", base = "https://www.gstatic.com/firebasejs/" + v + "/firebase-";
+    const traer = src => new Promise((ok, mal) => { const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = mal; document.head.appendChild(e); });
+    await traer(base + "app-compat.js");
+    await Promise.all([traer(base + "auth-compat.js"), traer(base + "firestore-compat.js")]);
+    firebase.initializeApp(window.FRIGO.firebase);
+    await firebase.auth().signInAnonymously();
+    bd = firebase.firestore();
+    bd.collection("productos").onSnapshot(s => {
+      P = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.precio > 0).sort((a, b) => (a.ord || 0) - (b.ord || 0));
+      pintar();
+    });
+    bd.collection("sabores").onSnapshot(s => {
+      S = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      const sigue = S.some(x => x.activo);
+      agotados = sigue ? S.filter(x => x.activo && (+x.baldes || 0) <= 0).map(x => x.nombre) : [];
+      pintar();
+    });
+  } catch (e) {
+    $("#app").innerHTML = `<div class="brand">Frigo</div><i class="sw"></i>
+      <h1>No pudimos abrir el menú</h1>
+      <p class="ayuda">Puede ser tu internet. Probá de nuevo en un rato, o llamanos y te atendemos por teléfono.</p>`;
+  }
+})();
+</script>
+</body>
+</html>

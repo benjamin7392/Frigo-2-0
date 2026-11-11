@@ -74,7 +74,25 @@ Te va a mostrar un bloque de texto. De ahí necesito cuatro valores:
 **Pegámelos en el chat y yo los cargo.** No son contraseñas: en toda app web van dentro del
 código y cualquiera las puede ver. Lo que protege tus datos son las reglas del paso 4.
 
-## 6. Listo
+## 6. Pedidos de clientes (opcional, pero ya está hecho)
+
+Hay una segunda página para que tus clientes pidan solos, sin usuario ni clave:
+`https://benjamin7392.github.io/Frigo-2-0/pedir.html`
+
+Para que funcione faltan dos cosas en la consola:
+
+1. **Security → Authentication → Sign-in method**: activá también **Anónimo**. Eso es lo que
+   permite que alguien pida sin crearse una cuenta, y al mismo tiempo deja que las reglas
+   distingan a un cliente del equipo.
+2. **Firestore → Reglas**: volvé a pegar `firestore.rules`, que cambió. Ahora separa al
+   equipo (entra con clave) del cliente (entra anónimo). El cliente solo puede leer el menú
+   y crear su propio pedido: no ve ventas, ni caja, ni horarios, ni los pedidos de otros.
+
+El pedido entra al instante en la app del equipo, en la pestaña **Pedidos**, con un cartel
+amarillo. Cuando se entrega, se toca **Entregado y cobrado** y queda registrado como venta,
+descontando el stock igual que una venta del mostrador.
+
+## 7. Listo
 
 Subo el cambio y, la próxima vez que abran la app, a cada uno le va a aparecer la pantalla
 de ingreso. Después de entrar, lo primero que ve el empleado es un botón grande **Llegué**.

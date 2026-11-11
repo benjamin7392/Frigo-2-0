@@ -1,6 +1,6 @@
 /* FRIGO: deja la app abrible sin internet. No se actualiza solo: espera el toque del usuario. */
-const V = "frigo-v2.4";
-const CASA = ["./", "index.html", "config.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const V = "frigo-v2.5";
+const CASA = ["./", "index.html", "config.js", "pedir.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 const FUERA = ["fonts.googleapis.com", "fonts.gstatic.com", "www.gstatic.com"];
 
 self.addEventListener("install", e => {

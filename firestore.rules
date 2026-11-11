@@ -2,43 +2,62 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function entro()  { return request.auth != null; }
-    // Cambiá este correo si el dueño usa otro usuario.
-    function dueno()  { return entro() && request.auth.token.email == 'benjaes7392@gmail.com'; }
+    // Quién entró y cómo.
+    function entro()    { return request.auth != null; }
+    // El equipo entra con usuario y clave. El cliente de la página de pedidos
+    // entra de forma anónima y no puede ver nada del negocio.
+    function equipo()   { return entro() && request.auth.token.firebase.sign_in_provider == 'password'; }
+    function dueno()    { return equipo() && request.auth.token.email == 'benjaes7392@gmail.com'; }
     function miCorreo() { return request.auth.token.email; }
 
-    // Precios y ajustes: solo el dueño.
-    match /productos/{id} { allow read: if entro(); allow write: if dueno(); }
-    match /ajustes/{id}   { allow read: if entro(); allow write: if dueno(); }
-
-    // Ventas y gastos: cualquiera carga, solo el dueño corrige o anula.
-    match /ventas/{id}  { allow read, create: if entro(); allow update, delete: if dueno(); }
-    match /gastos/{id}  { allow read, create: if entro(); allow update, delete: if dueno(); }
-    match /cierres/{id} { allow read, create: if entro(); allow update, delete: if dueno(); }
-
-    // Stock: cualquiera puede descontar al vender; solo el dueño repone.
+    // El menú y los sabores los puede leer también quien hace un pedido.
+    match /productos/{id} {
+      allow read: if entro();
+      allow write: if dueno();
+    }
     match /sabores/{id} {
       allow read: if entro();
       allow create, delete: if dueno();
       allow update: if dueno()
-        || (entro()
+        || (equipo()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['baldes'])
             && request.resource.data.baldes <= resource.data.baldes);
     }
 
-    // Viajes del reparto: cada uno registra los suyos.
+    // Plata y gestión: solo el equipo. El dueño es el único que corrige o borra.
+    match /ajustes/{id} { allow read: if equipo(); allow write: if dueno(); }
+    match /ventas/{id}  { allow read, create: if equipo(); allow update, delete: if dueno(); }
+    match /gastos/{id}  { allow read, create: if equipo(); allow update, delete: if dueno(); }
+    match /cierres/{id} { allow read, create: if equipo(); allow update, delete: if dueno(); }
+
+    // Jornadas y viajes: cada uno marca lo suyo, nadie puede fichar por otro.
+    match /fichajes/{id} {
+      allow read:   if equipo();
+      allow create: if equipo() && request.resource.data.correo == miCorreo();
+      allow update: if dueno() || (equipo() && resource.data.correo == miCorreo());
+      allow delete: if dueno();
+    }
     match /viajes/{id} {
-      allow read:   if entro();
-      allow create: if entro() && request.resource.data.correo == miCorreo();
-      allow update: if dueno() || (entro() && resource.data.correo == miCorreo());
+      allow read:   if equipo();
+      allow create: if equipo() && request.resource.data.correo == miCorreo();
+      allow update: if dueno() || (equipo() && resource.data.correo == miCorreo());
       allow delete: if dueno();
     }
 
-    // Control de horarios: cada uno marca lo suyo, nadie puede fichar por otro.
-    match /fichajes/{id} {
-      allow read:   if entro();
-      allow create: if entro() && request.resource.data.correo == miCorreo();
-      allow update: if dueno() || (entro() && resource.data.correo == miCorreo());
+    // Pedidos: el cliente crea el suyo y solo ve el suyo. El equipo los ve todos.
+    match /pedidos/{id} {
+      allow read: if equipo() || (entro() && resource.data.uid == request.auth.uid);
+      allow create: if entro()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.estado == 'nuevo'
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() <= 60
+        && request.resource.data.telefono.size() <= 30
+        && request.resource.data.direccion.size() <= 120
+        && request.resource.data.items.size() <= 20;
+      allow update: if equipo();
       allow delete: if dueno();
     }
   }

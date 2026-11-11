@@ -4,6 +4,8 @@
    diseño: lo que protege los datos son las reglas de Firestore.
    ============================================================ */
 window.FRIGO = {
+  // WhatsApp del local para los pedidos del link: 549 + código de área + número, sin 0 ni 15.
+  whatsapp: "5493814164185",
   firebase: {
     apiKey:     "AIzaSyB-inIgCwkHqhYPvNCjjCt63QFer0P3_FA",
     authDomain: "frigo-27072.firebaseapp.com",

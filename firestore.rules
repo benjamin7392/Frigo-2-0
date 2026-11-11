@@ -53,10 +53,12 @@ service cloud.firestore {
       allow update: if dueno();
       allow delete: if dueno() || (vende() && recien());
     }
-    // Un cierre por día (su id es c_AAAA-MM-DD): nadie más que el dueño lo pisa o lo reabre.
+    // Un cierre general por día (id c_AAAA-MM-DD) y uno por turno (id t_ + el fichaje).
+    // Nadie más que el dueño los pisa o los reabre.
     match /cierres/{id} {
       allow read: if vende();
-      allow create: if dueno() || (vende() && id == 'c_' + request.resource.data.dia && noFutura(request.resource.data.ts));
+      allow create: if dueno() || (vende() && noFutura(request.resource.data.ts)
+        && (id == 'c_' + request.resource.data.dia || id == 't_' + request.resource.data.turno));
       allow update, delete: if dueno();
     }
 

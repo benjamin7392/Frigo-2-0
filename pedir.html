@@ -53,6 +53,7 @@ input::placeholder{color:#7d99bd;font-weight:500}
 .res div{display:flex;justify-content:space-between;gap:12px;margin:5px 0}
 .aviso{background:var(--yel);color:#0a2650;border-radius:18px;padding:16px;font-size:17px;margin-bottom:14px}
 .paso{color:var(--mute);font-size:15px;font-weight:500;letter-spacing:.04em}
+a.grande.wa{display:block;text-align:center;text-decoration:none;background:#25d366;color:#06281c;margin-top:18px}
 </style>
 </head>
 <body>
@@ -108,7 +109,7 @@ function pintar() {
       <button class="op${entrega === "retira" ? " on" : ""}" onclick="entrega='retira';pintar()">
         <span><b>Lo paso a buscar</b><small>Vas vos al local</small></span><span class="tic"></span></button>
       <button class="op${entrega === "lleva" ? " on" : ""}" onclick="entrega='lleva';pintar()">
-        <span><b>Me lo traen</b><small>Te lo llevamos a tu casa</small></span><span class="tic"></span></button>
+        <span><b>Me lo traen</b><small>Te lo llevamos a tu casa. Envío sin cargo.</small></span><span class="tic"></span></button>
       <button class="atras" onclick="volver()">Volver atrás</button>`;
     pie = true; puede = !!entrega;
 
@@ -128,7 +129,9 @@ function pintar() {
       <div class="aviso">Listo, ${esc(datos.nombre.split(" ")[0] || "")}. Ya lo estamos preparando.</div>
       <p class="ayuda" style="margin:0">Tu número de pedido es</p>
       <div class="num tnum">${numero}</div>
-      <p class="ayuda">${entrega === "retira" ? "Decí este número cuando llegues al local." : "Te lo llevamos a " + esc(datos.direccion) + "."}</p>
+      <p class="ayuda">${entrega === "retira" ? "Decí este número cuando llegues al local." : "Te lo llevamos a " + esc(datos.direccion) + ". Envío sin cargo."}</p>
+      ${whatsapp() ? `<a class="grande wa" href="${linkWhatsApp()}" target="_blank" rel="noopener">Mandar el pedido por WhatsApp</a>
+      <p class="ayuda" style="margin-top:8px">Se abre WhatsApp con tu pedido ya escrito. Solo tocá <b>Enviar</b>.</p>` : ""}
       <div class="res">
         <div><span>${esc(elegido.nombre)}</span><b>${$$(elegido.precio)}</b></div>
         ${sabores.length ? `<div><span style="color:var(--mute)">${esc(sabores.join(", "))}</span><span></span></div>` : ""}
@@ -171,6 +174,15 @@ function volver() {
   else if (paso === "donde") paso = elegido.mx ? "gustos" : "que";
   else if (paso === "datos") paso = "donde";
   pintar();
+}
+// Número de WhatsApp del local (en config.js), con formato internacional: 549 + área + número.
+const whatsapp = () => String((window.FRIGO && window.FRIGO.whatsapp) || "").replace(/\D/g, "");
+function linkWhatsApp() {
+  const t = "¡Hola Frigo Shop! Hice el pedido N° " + numero + " desde la página:\n"
+    + "• " + elegido.nombre + (sabores.length ? " (" + sabores.join(", ") + ")" : "") + " — " + $$(elegido.precio) + "\n"
+    + (entrega === "lleva" ? "Envío a: " + datos.direccion.trim() + "\n" : "Lo paso a buscar.\n")
+    + "Nombre: " + datos.nombre.trim() + (datos.telefono.trim() ? " · Tel: " + datos.telefono.trim() : "");
+  return "https://wa.me/" + whatsapp() + "?text=" + encodeURIComponent(t);
 }
 function otroPedido() { paso = "que"; elegido = null; sabores = []; entrega = null; numero = null; pendiente = null; pintar(); }
 

@@ -204,7 +204,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "3.3";
+const VERSION = "3.4";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -368,7 +368,9 @@ const MENU_REAL = [
   ["x_bano", "Extras", "Baño de chocolate", 500],
 ];
 const MENU_VERSION = 2;
-const PAGOS = ["Efectivo","Tarjeta","Transferencia"];
+const PAGOS = ["Efectivo","Transferencia"];
+// Para mostrar totales: las formas de hoy más cualquier otra que aparezca en ventas viejas.
+const pagosEn = vs => [...new Set([...PAGOS, ...vs.map(v => v.pago).filter(Boolean)])];
 const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro","Otros"];
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 /* Rendimiento real del balde de 10 litros, medido en el local (se cambia en Productos):
@@ -463,7 +465,22 @@ const efectivoEsperado = d => {
   const { v } = resumen(d);
   return (+ajuste("fondo", 0)) + suma(v.filter(x => x.pago === "Efectivo"), "total") - salidasDeCaja(d);
 };
-const cierreDe = d => C.find(x => x.id === "c_" + d) || C.find(x => x.dia === d);
+const cierreDe = d => C.find(x => x.id === "c_" + d) || C.find(x => x.dia === d && x.tipo !== "turno");
+
+/* ---------- Cierre por turno ----------
+   La plata queda en la caja para el que sigue. Se cuenta la caja entera y se compara con lo
+   que debería haber hasta ese momento; la diferencia del turno es la diferencia de ahora
+   menos la que ya había en el cierre de turno anterior. */
+const cierreTurnoDe = fid => C.find(x => x.id === "t_" + fid);
+const cierresTurno = d => C.filter(x => x.tipo === "turno" && x.dia === d).sort((a, b) => a.ts - b.ts);
+function esperadoHasta(d, t) {
+  const ef = suma(delDia(V, d).filter(x => x.pago === "Efectivo" && x.ts <= t), "total");
+  const sal = suma(delDia(G, d).filter(x => x.caja !== false && x.ts <= t), "monto");
+  return (+ajuste("fondo", 0)) + ef - sal;
+}
+function ventasDelTurno(f) {
+  return V.filter(v => v.turno === f.id || (!v.turno && v.por === f.persona && v.ts >= f.entrada && (!f.salida || v.ts <= f.salida)));
+}
 
 /* ---------- roles ---------- */
 const ficha = correo => (window.FRIGO && window.FRIGO.gente && window.FRIGO.gente[(correo || "").toLowerCase()]) || null;
@@ -613,7 +630,7 @@ function tarjetaTurno() {
   const f = miFichaje();
   const mias = V.filter(v => v.dia === HOY() && v.por === quien && (!f || v.turno === f.id || v.ts >= f.entrada));
   if (!mias.length) return "";
-  const pagos = PAGOS.map(p => [p, suma(mias.filter(x => x.pago === p), "total")]).filter(x => x[1]);
+  const pagos = pagosEn(mias).map(p => [p, suma(mias.filter(x => x.pago === p), "total")]).filter(x => x[1]);
   const k = f ? f.id : "p:" + quien;
   return `<div class="card" style="margin-bottom:12px;cursor:pointer" onclick="turnoAbierto='${k}';ir('mov')">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -633,7 +650,7 @@ function vHoy() {
         const h = horas[0] + k; return { k: h + "h", v: porHora[h] || 0 };
       })
     : [];
-  const pagos = PAGOS.map(p => [p, suma(r.v.filter(x => x.pago === p), "total")]).filter(x => x[1] > 0);
+  const pagos = pagosEn(r.v).map(p => [p, suma(r.v.filter(x => x.pago === p), "total")]).filter(x => x[1] > 0);
 
   const nvs = nuevos();
   return `
@@ -698,8 +715,14 @@ function tarjetaFichaje() {
   return `<div class="card ficha dentro">
       <span class="eti">Estás trabajando</span>
       <p style="margin:2px 0 0">Entraste a las <b>${hora(f.entrada)}</b>. Llevás <b class="tnum">${reloj(trabajado(f))}</b>.</p>
-      <button class="btn ghost" onclick="salir()">Me voy</button>
+      <button class="btn ghost" onclick="meVoy()">Me voy</button>
     </div>`;
+}
+function meVoy() {
+  const f = miFichaje(); if (!f) return;
+  if (puedeVender() && ventasDelTurno(f).length && !cierreTurnoDe(f.id)) {
+    ir("cerrar"); notificar("Antes de irte, contá la caja y cerrá tu turno.");
+  } else salir();
 }
 
 function tarjetaViaje() {
@@ -914,7 +937,7 @@ function vMov() {
     grupos.get(t.k).v.push(v);
   });
   const lista = [...grupos.values()].sort((a, b) => (a.desde || a.v[0].ts) - (b.desde || b.v[0].ts));
-  const pagosDe = vs => PAGOS.map(p => [p, suma(vs.filter(x => x.pago === p), "total")]).filter(x => x[1]);
+  const pagosDe = vs => pagosEn(vs).map(p => [p, suma(vs.filter(x => x.pago === p), "total")]).filter(x => x[1]);
   return `
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
@@ -932,7 +955,8 @@ function vMov() {
           <small>${g.desde ? hora(g.desde) + " a " + (g.hasta ? hora(g.hasta) : "ahora") : "sin marcar llegada"} · ${g.v.length} venta${g.v.length > 1 ? "s" : ""}</small></div>
         <b class="tnum pos" style="font-size:19px">${$$(suma(g.v, "total"))}</b>
       </button>
-      <div class="pagos">${pagosDe(g.v).map(([p, m]) => `<span>${p} <b class="tnum">${$$(m)}</b></span>`).join("")}</div>
+      <div class="pagos">${pagosDe(g.v).map(([p, m]) => `<span>${p} <b class="tnum">${$$(m)}</b></span>`).join("")}
+        ${cierreTurnoDe(g.k) ? (t => `<span>Caja: <b class="${t.dif === 0 ? "" : t.dif < 0 ? "neg" : "pos"}">${t.dif === 0 ? "cuadró" : signo(t.dif)}</b></span>`)(cierreTurnoDe(g.k)) : ""}</div>
       ${abierto ? `<ul class="vent">${g.v.slice().reverse().map(v => `
         <li><span class="h tnum">${hora(v.ts)}</span>
           <div class="q">${(v.items || []).map(lineaVenta).join("<br>") || "Venta"}${v.pedido ? ` <span class="sab">· pedido ${esc(v.pedido)}</span>` : ""}</div>
@@ -1080,7 +1104,7 @@ function vMas() {
     ["mov", "Historial de ventas", "Por turno: quién cobró, qué se vendió y cómo pagaron", true],
     ["personal", esDueno() ? "Personal y horarios" : "Mis horas y viajes",
       enNube() ? (esDueno() ? "Quién está trabajando y cuántas horas lleva" : "Lo que llevás trabajado") : "Necesita conectar la nube", true],
-    ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia", true],
+    ["cerrar", "Cerrar caja", "Cierre de tu turno y cierre general del día", true],
     ["rep", "Reportes", "Semana, mes y lo más vendido", esDueno()],
     ["prod", "Precios", "Qué vendés, a cuánto y cuánto helado gasta", esDueno()],
     ["datos", "Datos y respaldo", "Exportar para el contador, copia de seguridad", esDueno()],
@@ -1154,9 +1178,71 @@ function vRep() {
     <b class="tnum r">${c}</b></li>`).join("")}</ul>` : `<p class="vacio">Todavía no hay datos de sabores.</p>`}`;
 }
 
+function bloqueTurno() {
+  const f = dia === HOY() ? miFichaje() : null;
+  const hechos = cierresTurno(dia);
+  let h = "";
+  if (f && puedeVender()) {
+    const ya = cierreTurnoDe(f.id), vs = ventasDelTurno(f);
+    const ef = suma(vs.filter(x => x.pago === "Efectivo"), "total"), tr = suma(vs.filter(x => x.pago !== "Efectivo"), "total");
+    const gs = suma(G.filter(g => g.dia === dia && g.por === quien && g.caja !== false && g.ts >= f.entrada), "monto");
+    if (!ya) h += `<h2>Cerrar mi turno</h2>
+      <div class="card">
+        <p class="hint" style="margin-top:0">Desde las ${hora(f.entrada)}: ${vs.length} venta${vs.length === 1 ? "" : "s"}.</p>
+        <ul class="list">
+          <li><span>Cobraste en efectivo</span><b class="tnum pos">${$$(ef)}</b></li>
+          <li><span>Por transferencia</span><b class="tnum">${$$(tr)}</b></li>
+          ${gs ? `<li><span>Pagaste de la caja</span><b class="tnum neg">${$$(gs)}</b></li>` : ""}
+          <li style="border-color:var(--yel)"><b>En la caja tiene que haber</b><b class="tnum" style="font-size:19px">${$$(esperadoHasta(dia, Date.now()))}</b></li>
+        </ul>
+        <p class="hint">Es todo el efectivo del día hasta ahora, no solo el tuyo. La plata queda en la caja para el que sigue.</p>
+        <label class="f" for="contadoT">¿Cuánto hay en la caja?</label>
+        <input id="contadoT" type="number" inputmode="decimal" step="any" placeholder="Contá los billetes y escribilo" oninput="pintarDifT()">
+        <div id="difT" class="hint"></div>
+        <button class="btn" onclick="cerrarTurno()">Cerrar mi turno y salir</button>
+        <button class="lnk" onclick="salir()">Me voy sin contar la caja</button>
+      </div>`;
+  }
+  if (hechos.length) h += `<h2>Turnos cerrados</h2><ul class="list">${hechos.map(t => `
+    <li><div class="ls"><b>${esc(t.por || "")}</b><small>${hora(t.ts)} · contó ${$$(t.contado)} · efectivo del turno ${$$(t.efectivo || 0)}</small></div>
+      <b class="tnum ${t.dif === 0 ? "" : t.dif < 0 ? "neg" : "pos"}">${t.dif === 0 ? "Cuadró" : signo(t.dif)}</b></li>`).join("")}</ul>`;
+  return h;
+}
+function difTurnoAhora(contado) {
+  const previo = cierresTurno(dia).slice(-1)[0];
+  const acum = contado - esperadoHasta(dia, Date.now());
+  return { acum, dif: acum - (previo ? previo.difAcum || 0 : 0) };
+}
+function pintarDifT() {
+  const c = $("#contadoT"), out = $("#difT"); if (!c || !out) return;
+  if (c.value === "") { out.innerHTML = ""; return; }
+  const { dif } = difTurnoAhora(cent(c.value));
+  out.innerHTML = dif === 0 ? `<b class="pos">Cuadra justo.</b>`
+    : `<b class="${dif < 0 ? "neg" : "pos"}">${dif < 0 ? "Faltan" : "Sobran"} ${$$(Math.abs(dif))} en tu turno.</b>`;
+}
+let cerrandoTurno = false;
+async function cerrarTurno() {
+  const f = miFichaje(), c = $("#contadoT");
+  if (!f || !c) return;
+  if (c.value === "") { notificar("Contá la caja y escribí cuánto hay"); return; }
+  if (cerrandoTurno || cierreTurnoDe(f.id)) return;
+  cerrandoTurno = true;
+  const contado = cent(c.value), ahora = Date.now(), { acum, dif } = difTurnoAhora(contado), vs = ventasDelTurno(f);
+  try {
+    await D.guardar("cierres", "t_" + f.id, {
+      tipo: "turno", dia, ts: ahora, por: quien, turno: f.id, contado, esperado: esperadoHasta(dia, ahora), difAcum: acum, dif,
+      efectivo: suma(vs.filter(x => x.pago === "Efectivo"), "total"), transferencia: suma(vs.filter(x => x.pago !== "Efectivo"), "total"),
+    });
+    c.value = ""; c.blur();
+    notificar(dif === 0 ? "Turno cerrado: cuadró." : "Turno cerrado: " + (dif < 0 ? "faltan " : "sobran ") + $$(Math.abs(dif)) + ".");
+    await salir();
+    ir("hoy");
+  } catch (e) { fallo(e); }
+  cerrandoTurno = false;
+}
 function vCerrar() {
   const esperado = efectivoEsperado(dia), ci = cierreDe(dia), r = resumen(dia);
-  if (ci) return `<h2>Cierre del ${dia === HOY() ? "día" : lindo(dia)}</h2>
+  if (ci) return bloqueTurno() + `<h2>Cierre general del ${dia === HOY() ? "día" : lindo(dia)}</h2>
     <div class="hero">
       <span class="lab">Diferencia</span>
       <div class="big tnum ${ci.dif === 0 ? "" : ci.dif < 0 ? "neg" : "pos"}">${ci.dif === 0 ? "Cuadró" : signo(ci.dif)}</div>
@@ -1169,7 +1255,8 @@ function vCerrar() {
     ${ci.nota ? `<p class="hint">Nota: ${esc(ci.nota)}</p>` : ""}
     ${esDueno() ? `<button class="btn ghost" onclick="seguro('¿Reabrir el día? Vas a tener que volver a contar la caja.',()=>D.borrar('cierres','${ci.id}'))">Reabrir el día</button>` : ""}`;
 
-  return `<h2>Cerrar el ${dia === HOY() ? "día" : lindo(dia)}</h2>
+  return bloqueTurno() + `<h2>Cierre general del ${dia === HOY() ? "día" : lindo(dia)}</h2>
+  <p class="hint" style="margin-top:-4px">Al final de la noche, el último cuenta la caja para cerrar el día completo.</p>
   <ul class="list">
     <li><span>Fondo fijo de caja</span><b class="tnum">${$$(ajuste("fondo", 0))}</b></li>
     <li><span>Ventas en efectivo</span><b class="tnum pos">${$$(suma(r.v.filter(x => x.pago === "Efectivo"), "total"))}</b></li>

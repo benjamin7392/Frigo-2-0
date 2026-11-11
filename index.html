@@ -75,6 +75,10 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .btn[disabled]{opacity:.4}
 .btn.ghost{background:none;border:1.5px solid var(--line)}
 .btn.verde{background:var(--entra);color:#06281c}
+.fab small{display:block;font-size:11px;font-weight:600;margin-top:2px;letter-spacing:.02em}
+.btn.grande{font-size:20px;padding:18px;margin:0 0 12px}
+.tile-btn.libre{border-style:dashed}
+.tile-btn.sinp small{color:var(--mag)}
 .lnk{background:none;border:0;color:var(--yel);text-decoration:underline;font-size:13px;padding:2px 0}
 .list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .list li{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:11px 14px}
@@ -104,7 +108,7 @@ nav .in{max-width:540px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr
 nav button{background:none;border:0;color:var(--mute);font-size:11.5px;padding:8px 0 6px;border-radius:12px;position:relative}
 nav button.on{color:var(--teal);font-weight:600}
 nav button.on:after{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:22px;height:3px;border-radius:3px;background:var(--teal)}
-.fab{background:var(--mag)!important;color:#fff!important;border-radius:22px!important;height:54px;margin:0 6px;font-size:26px!important;font-weight:600;box-shadow:0 6px 18px rgba(192,48,122,.45)}
+.fab{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;background:var(--mag)!important;color:#fff!important;border-radius:22px!important;height:54px;margin:0 6px;font-size:26px!important;font-weight:600;box-shadow:0 6px 18px rgba(192,48,122,.45)}
 .pin{position:absolute;top:4px;right:50%;transform:translateX(16px);min-width:17px;height:17px;border-radius:9px;background:var(--rojo);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;padding:0 4px}
 
 /* ---------- hoja inferior ---------- */
@@ -164,7 +168,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 <nav id="nav" hidden><div class="in">
   <button data-v="hoy" onclick="ir('hoy')">Hoy</button>
   <button data-v="pedidos" onclick="ir('pedidos')">Pedidos<span class="pin" id="pinP" hidden></span></button>
-  <button class="fab" onclick="abrirHoja('venta')" aria-label="Registrar">+</button>
+  <button class="fab" onclick="abrirHoja('venta')" aria-label="Anotar una venta">+<small>Vender</small></button>
   <button data-v="faltan" onclick="ir('faltan')">Faltan<span class="pin" id="pinF" hidden></span></button>
   <button data-v="mas" onclick="ir('mas')">Más</button>
 </div></nav>
@@ -179,7 +183,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.6";
+const VERSION = "2.7";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -318,6 +322,7 @@ let D = null;                                  // depósito
 let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [], PD = [];
 let vista = "hoy", dia = HOY(), linea = "Ice Cream";
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
+let precioPara = null;
 let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
 let cobrando = false, ultimaVenta = null, temporizador = null;
 let soloLectura = false, quien = "equipo", yo = null, relojVivo = null;
@@ -507,6 +512,10 @@ function vHoy() {
   ${nvs && puedeVender() ? `<div class="urgente" style="cursor:pointer;background:var(--yel);color:#0a2650" onclick="ir('pedidos')">
       ${nvs} pedido${nvs > 1 ? "s" : ""} nuevo${nvs > 1 ? "s" : ""} esperando. Tocá para verlos.</div>` : ""}
   ${tarjetaFichaje()}${tarjetaViaje()}
+  ${hoyEs && puedeVender() ? `<button class="btn verde grande" onclick="abrirHoja('venta')">+ Anotar una venta</button>` : ""}
+  ${esDueno() && (!P.length || P.some(p => !p.precio)) ? `<div class="card" style="margin-bottom:12px"><b>Para vender en un toque</b>
+    <p class="hint" style="margin:4px 0 10px">${!P.length ? "Cargá el menú de FRIGO y después poné los precios." : P.filter(p => !p.precio).length + " producto" + (P.filter(p => !p.precio).length > 1 ? "s" : "") + " sin precio. También podés ponérselo la primera vez que lo vendas."}</p>
+    ${!P.length ? `<button class="btn" onclick="sembrar()">Cargar el menú de FRIGO</button>` : `<button class="btn ghost" onclick="ir('prod')">Poner precios</button>`}</div>` : ""}
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
     <b>${hoyEs ? "Hoy" : lindo(dia)}</b>
@@ -942,8 +951,18 @@ function pintarHoja() {
 }
 
 function hojaVenta() {
-  if (!P.length) return `<p class="vacio">Primero cargá los productos.</p>
-    <button class="btn" onclick="cerrarHoja();ir('prod')">Ir a Productos</button>`;
+  const teclas = `<div class="tecla">${["1","2","3","4","5","6","7","8","9","00","0","←"].map(k => `<button onclick="tocarTecla('${k}')">${k}</button>`).join("")}</div>`;
+  if (precioPara) {
+    const t = cent(teclado || "0"), libre = precioPara === "libre";
+    return `<b>${libre ? "Venta por importe" : esc(precioPara.nombre)}</b>
+      <p class="hint" style="margin:4px 0 10px">${libre ? "Escribí cuánto cobrás." : "Todavía no tiene precio. Escribí cuánto cobrás" + (esDueno() ? " y queda guardado como su precio." : ".")}</p>
+      <div class="visor tnum" id="visor">${$$(t)}</div>${teclas}
+      <button class="btn verde" id="bp" onclick="confirmarImporte()" ${t > 0 ? "" : "disabled"}>${t > 0 ? "Agregar " + $$(t) : "Escribí el importe"}</button>
+      <button class="btn ghost" onclick="precioPara=null;teclado='';pintarHoja()">Volver</button>`;
+  }
+  if (!P.length && !ticket.length) return `<p class="hint">Todavía no hay productos cargados, pero podés anotar la venta igual.</p>
+    <button class="btn verde grande" onclick="precioPara='libre';teclado='';pintarHoja()">Anotar venta por importe</button>
+    ${esDueno() ? `<button class="btn ghost" onclick="cerrarHoja();ir('prod')">Cargar el menú y los precios</button>` : ""}`;
 
   if (eligiendo) {
     const ag = agotados();
@@ -957,13 +976,14 @@ function hojaVenta() {
   }
 
   const lineas = LINEAS.filter(l => P.some(p => p.linea === l));
-  if (!lineas.includes(linea)) linea = lineas[0];
+  if (lineas.length && !lineas.includes(linea)) linea = lineas[0];
   const total = suma(ticket, "p");
   return `
     <div class="row">${lineas.map(l => `<button class="chip${l === linea ? " on" : ""}" onclick="linea='${esc(l)}';pintarHoja()">${esc(l)}</button>`).join("")}</div>
     <div class="grid2" style="margin-top:10px">${P.filter(p => p.linea === linea).map(p => `
-      <button class="tile-btn" onclick="tocarProducto('${p.id}')">
-        <b>${esc(p.nombre.replace(p.linea + " ", ""))}</b><small class="tnum">${$$(p.precio)}</small></button>`).join("")}</div>
+      <button class="tile-btn${p.precio ? "" : " sinp"}" onclick="tocarProducto('${p.id}')">
+        <b>${esc(p.nombre.replace(p.linea + " ", ""))}</b><small class="tnum">${p.precio ? $$(p.precio) : "Poné el precio"}</small></button>`).join("")}
+      <button class="tile-btn libre" onclick="precioPara='libre';teclado='';pintarHoja()"><b>Otro importe</b><small>Escribís el monto</small></button></div>
     ${ticket.length ? `
       <h2>Este ticket</h2>
       <ul class="list">${ticket.map((t, i) => `
@@ -995,6 +1015,7 @@ function hojaGasto() {
    ============================================================ */
 function tocarProducto(id) {
   const p = P.find(x => x.id === id); if (!p) return;
+  if (!p.precio) { precioPara = p; teclado = ""; pintarHoja(); return; }
   if (!p.mx) { ticket.push({ n: p.nombre, p: p.precio, c: p.costo || 0, kg: p.kg || 0, s: [] }); pintarHoja(); return; }
   eligiendo = p; elegidos = []; pintarHoja();
 }
@@ -1008,6 +1029,15 @@ function sumarAlTicket() {
   ticket.push({ n: eligiendo.nombre, p: eligiendo.precio, c: eligiendo.costo || 0, kg: eligiendo.kg || 0, s: elegidos.slice() });
   eligiendo = null; elegidos = []; pintarHoja();
 }
+function confirmarImporte() {
+  const t = cent(teclado || "0"); if (!(t > 0)) return;
+  const p = precioPara; precioPara = null; teclado = "";
+  if (p === "libre") { ticket.push({ n: "Venta por importe", p: t, c: 0, kg: 0, s: [] }); pintarHoja(); return; }
+  if (esDueno()) D.guardar("productos", p.id, { precio: t }).catch(() => {});
+  const prod = { ...p, precio: t };
+  if (!prod.mx) { ticket.push({ n: prod.nombre, p: t, c: prod.costo || 0, kg: prod.kg || 0, s: [] }); pintarHoja(); return; }
+  eligiendo = prod; elegidos = []; pintarHoja();
+}
 function tocarTecla(k) {
   if (k === "←") teclado = teclado.slice(0, -1);
   else if (teclado.length < 9) teclado += k;
@@ -1015,8 +1045,9 @@ function tocarTecla(k) {
 }
 // Refresca solo el visor y el botón: escribir el concepto no pierde el foco.
 function refrescarGasto() {
-  const t = cent(teclado || "0"), v = $("#visor"), b = $("#bg");
+  const t = cent(teclado || "0"), v = $("#visor"), b = $("#bg"), bp = $("#bp");
   if (v) v.textContent = $$(t);
+  if (bp) { bp.disabled = !(t > 0); bp.textContent = t > 0 ? "Agregar " + $$(t) : "Escribí el importe"; }
   if (b) {
     const listo = t > 0 && gastoTxt.trim();
     b.disabled = !listo;
@@ -1229,8 +1260,8 @@ function pintar() {
 }
 function ir(v) { vista = v; window.scrollTo(0, 0); pintar(); }
 function moverDia(n) { const d = correrDia(dia, n); if (d <= HOY()) { dia = d; pintar(); } }
-function abrirHoja(t) { hojaTab = t; eligiendo = null; elegidos = []; pintarHoja(); }
-function cerrarHoja() { hojaTab = null; eligiendo = null; elegidos = []; $("#capa").hidden = true; }
+function abrirHoja(t) { hojaTab = t; eligiendo = null; elegidos = []; precioPara = null; teclado = ""; pintarHoja(); }
+function cerrarHoja() { hojaTab = null; eligiendo = null; elegidos = []; precioPara = null; $("#capa").hidden = true; }
 
 let tToast = null;
 function notificar(texto, accion, fn) {

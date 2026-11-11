@@ -5,7 +5,7 @@
    - Cuando hay un sw.js nuevo se activa solo; la página decide cuándo recargar (nunca a mitad de una venta).
    IMPORTANTE al publicar: cambiar V (acá) y VERSION (en index.html). Sin ese cambio los celulares
    ven la versión nueva recién en la apertura siguiente, en vez de actualizarse solos. */
-const V = "frigo-v3.1";
+const V = "frigo-v3.2";
 const CASA = ["./", "index.html", "config.js", "pedir.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "logo.png"];
 const FUERA = ["fonts.googleapis.com", "fonts.gstatic.com", "www.gstatic.com"];
 // Mismo número de versión que usa index.html para cargar Firebase. Se guarda para que arranque sin internet.

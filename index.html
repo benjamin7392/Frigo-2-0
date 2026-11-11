@@ -77,6 +77,19 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .btn.ghost{background:none;border:1.5px solid var(--line)}
 .btn.verde{background:var(--entra);color:#06281c}
 .list li .ls{min-width:0}.ls b,.ls small{overflow-wrap:anywhere}
+.turno{padding:0;overflow:hidden;margin-bottom:12px}
+.turno .cab{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;background:none;border:0;color:inherit;font:inherit;padding:14px 16px 6px;cursor:pointer}
+.turno .cab small{display:block;color:var(--mute);font-size:13px;margin-top:2px}
+.turno .pagos{display:flex;flex-wrap:wrap;gap:6px 14px;padding:0 16px 10px;font-size:13px;color:var(--mute)}
+.turno .pagos b{color:var(--ink);font-weight:600}
+.turno .hint{padding:0 16px 12px}
+.vent{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.vent li{display:flex;gap:10px;align-items:flex-start;padding:10px 16px;border-bottom:1px solid var(--line)}
+.vent .h{color:var(--mute);font-size:13px;flex:none;width:42px;padding-top:2px}
+.vent .q{flex:1;min-width:0;line-height:1.35}
+.vent .sab{color:var(--mute);font-size:13px}
+.vent .r small{display:block;color:var(--mute);font-size:12px}
+.chip.sinst{border-color:var(--rojo);color:var(--rojo)}.chip.sinst.on{color:#fff}
 .list li.stk{flex-wrap:wrap}.stk b{white-space:normal}
 .stk .acc{flex-basis:100%;display:flex;gap:8px;align-items:center;margin-top:8px}
 .stk .acc .lnk{margin-left:auto}
@@ -177,7 +190,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   <button data-v="hoy" onclick="ir('hoy')">Hoy</button>
   <button data-v="pedidos" onclick="ir('pedidos')">Pedidos<span class="pin" id="pinP" hidden></span></button>
   <button class="fab" onclick="abrirHoja('venta')" aria-label="Anotar una venta">+<small>Vender</small></button>
-  <button data-v="faltan" onclick="ir('faltan')">Faltan<span class="pin" id="pinF" hidden></span></button>
+  <button data-v="faltan" onclick="ir('faltan')">Stock<span class="pin" id="pinF" hidden></span></button>
   <button data-v="mas" onclick="ir('mas')">Más</button>
 </div></nav>
 
@@ -191,7 +204,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "3.1";
+const VERSION = "3.2";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -404,12 +417,19 @@ const setAjuste = (k, v) => D.guardar("ajustes", "cfg", { [k]: v });
 /* ---------- derivados ---------- */
 const delDia = (arr, d) => arr.filter(x => x.dia === d);
 const baldes = i => { const s = S.find(x => x.id === "s" + i); return s ? Math.max(0, +s.baldes || 0) : 0; };
-const sigue = i => { const s = S.find(x => x.id === "s" + i); return !!(s && s.activo); };
-const stockCargado = () => MENU.some((n, i) => sigue(i));
-const semaforo = b => b < ROJO ? ["s-r", "Se acabó o casi"] : b < AMARILLO ? ["s-a", "Queda poco"] : ["s-v", "Hay"];
-const seguidos = () => MENU.map((n, i) => i).filter(sigue);
-const criticos = () => MENU.map((n, i) => [n, i, baldes(i)]).filter(x => sigue(x[1]) && x[2] < ROJO);
-const agotados = () => MENU.filter((n, i) => sigue(i) && baldes(i) <= 0);
+/* Stock: todos los sabores del menú están siempre. Sin stock = 0 (o nunca se cargó);
+   Poco stock = menos de 1 balde. */
+const POCO = 1, NADA = 0.005;                     // NADA: menos de media bocha cuenta como vacío
+const cargado = i => S.some(x => x.id === "s" + i);  // alguna vez se le cargaron baldes
+const sigue = cargado;                             // nombre viejo, mismo sentido
+const stockCargado = () => MENU.some((n, i) => cargado(i));
+const estadoStock = b => b <= NADA ? ["s-r", "Sin stock"] : b < POCO ? ["s-a", "Poco stock"] : ["s-v", "Hay"];
+const semaforo = estadoStock;
+const sinStock = i => baldes(i) <= NADA;
+// Para avisar: los que tenían y se están por terminar o se terminaron.
+const criticos = () => MENU.map((n, i) => [n, i, baldes(i)]).filter(x => cargado(x[1]) && x[2] < POCO);
+// Para ventas y pedidos: hasta que el dueño cargue el stock por primera vez, no se bloquea nada.
+const agotados = () => stockCargado() ? MENU.filter((n, i) => sinStock(i)) : [];
 const listar = (nombres, tope = 4) => nombres.length <= tope ? nombres.join(", ")
   : nombres.slice(0, tope).join(", ") + " y " + (nombres.length - tope) + " más";
 
@@ -572,6 +592,21 @@ function barras(datos, { color = "var(--entra)", negativo = "var(--sale)", alto 
 /* ============================================================
    VISTAS
    ============================================================ */
+// Lo que lleva cobrado quien tiene la app en la mano, en su turno (o en el día, si no fichó).
+function tarjetaTurno() {
+  const f = miFichaje();
+  const mias = V.filter(v => v.dia === HOY() && v.por === quien && (!f || v.turno === f.id || v.ts >= f.entrada));
+  if (!mias.length) return "";
+  const pagos = PAGOS.map(p => [p, suma(mias.filter(x => x.pago === p), "total")]).filter(x => x[1]);
+  const k = f ? f.id : "p:" + quien;
+  return `<div class="card" style="margin-bottom:12px;cursor:pointer" onclick="turnoAbierto='${k}';ir('mov')">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <b>${f ? "Tu turno · desde " + hora(f.entrada) : "Tus ventas de hoy"}</b>
+      <b class="tnum pos" style="font-size:20px">${$$(suma(mias, "total"))}</b></div>
+    <p class="hint" style="margin:4px 0 0">${mias.length} venta${mias.length > 1 ? "s" : ""} · ${pagos.map(([p, m]) => p + " " + $$(m)).join(" · ")}</p>
+    <p class="hint" style="margin:2px 0 0">Última: ${hora(mias[0].ts)} · ${(mias[0].items || []).map(i => esc(i.n.replace(/^(Ice Cream|Achilata premium|Otros) /, "")) + (i.s && i.s.length ? " (" + esc(i.s.join(", ")) + ")" : "")).join(" + ")} · ${$$(mias[0].total)}. Tocá para ver todas.</p>
+  </div>`;
+}
 function vHoy() {
   const r = resumen(dia), hoyEs = dia === HOY(), cr = criticos(), ci = cierreDe(dia);
   const porHora = {};
@@ -589,7 +624,7 @@ function vHoy() {
   ${nvs && puedeVender() ? `<div class="urgente" style="cursor:pointer;background:var(--yel);color:#0a2650" onclick="ir('pedidos')">
       ${nvs} pedido${nvs > 1 ? "s" : ""} nuevo${nvs > 1 ? "s" : ""} esperando. Tocá para verlos.</div>` : ""}
   ${tarjetaFichaje()}${tarjetaViaje()}
-  ${hoyEs && puedeVender() ? `<button class="btn verde grande" onclick="abrirHoja('venta')">+ Anotar una venta</button>` : ""}
+  ${hoyEs && puedeVender() ? `<button class="btn verde grande" onclick="abrirHoja('venta')">+ Anotar una venta</button>${tarjetaTurno()}` : ""}
   ${esDueno() && (!P.length || P.some(p => !p.precio)) ? `<div class="card" style="margin-bottom:12px"><b>Para vender en un toque</b>
     <p class="hint" style="margin:4px 0 10px">${!P.length ? "Cargá el menú de FRIGO y después poné los precios." : P.filter(p => !p.precio).length + " producto" + (P.filter(p => !p.precio).length > 1 ? "s" : "") + " sin precio. También podés ponérselo la primera vez que lo vendas."}</p>
     ${!P.length ? `<button class="btn" onclick="sembrar()">Cargar el menú de FRIGO</button>` : `<button class="btn ghost" onclick="ir('prod')">Poner precios</button>`}</div>` : ""}
@@ -618,7 +653,7 @@ function vHoy() {
     ${r.retiros ? `<span class="sub">Retiraste ${$$(r.retiros)} de la caja (no cuenta como gasto)</span>` : ""}
   </div>`}
 
-  ${cr.length ? `<div class="urgente" style="margin-top:12px;cursor:pointer" onclick="ir('faltan')">Falta reponer: ${esc(listar(cr.map(x => x[0])))}</div>` : ""}
+  ${cr.length ? `<div class="urgente" style="margin-top:12px;cursor:pointer" onclick="ir('faltan')">Poco o sin stock: ${esc(listar(cr.map(x => x[0])))}</div>` : ""}
 
   <h2>Ventas por hora</h2>
   <div class="card">${barras(serie, { color: "var(--entra)" })}</div>
@@ -785,7 +820,7 @@ async function entregarPedido(id, formaPago) {
   try {
     // El id de la venta sale del pedido: aunque dos celulares lo toquen a la vez, queda una sola.
     await D.guardar("ventas", "ped_" + id, {
-      dia: HOY(), ts: Date.now(), por: quien, pago: formaPago, pedido: String(p.numero || ""),
+      dia: HOY(), ts: Date.now(), por: quien, pago: formaPago, pedido: String(p.numero || ""), turno: (miFichaje() || {}).id || null,
       items: items.map(({ desconocido, ...i }) => i), total, costo: suma(items, "c"),
     });
     const bajas = {};
@@ -844,9 +879,26 @@ function vPersonal() {
     : `<p class="vacio">Sin jornadas ese día.</p>`}`;
 }
 
+/* ---------- Historial de ventas por turno ----------
+   Un turno es el fichaje de quien cobró (Llegué → Me voy). Si cobró sin fichar, se agrupa por persona. */
+function turnoDe(v) {
+  const f = (v.turno && FI.find(x => x.id === v.turno))
+    || FI.find(x => x.persona === v.por && x.entrada <= v.ts && (!x.salida || x.salida >= v.ts));
+  return f ? { k: f.id, quien: f.persona, desde: f.entrada, hasta: f.salida }
+           : { k: "p:" + (v.por || "?"), quien: v.por || "Sin nombre", desde: null, hasta: null };
+}
+const lineaVenta = it => esc(it.n.replace(/^(Ice Cream|Achilata premium|Otros) /, ""))
+  + (it.s && it.s.length ? ` <span class="sab">${esc(it.s.join(", "))}</span>` : "");
+let turnoAbierto = null;
 function vMov() {
-  const r = resumen(dia);
-  const todo = [...r.v.map(x => ({ ...x, t: "v" })), ...r.g.map(x => ({ ...x, t: "g" }))].sort((a, b) => b.ts - a.ts);
+  const r = resumen(dia), grupos = new Map();
+  r.v.slice().sort((a, b) => a.ts - b.ts).forEach(v => {
+    const t = turnoDe(v);
+    if (!grupos.has(t.k)) grupos.set(t.k, { ...t, v: [] });
+    grupos.get(t.k).v.push(v);
+  });
+  const lista = [...grupos.values()].sort((a, b) => (a.desde || a.v[0].ts) - (b.desde || b.v[0].ts));
+  const pagosDe = vs => PAGOS.map(p => [p, suma(vs.filter(x => x.pago === p), "total")]).filter(x => x[1]);
   return `
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
@@ -855,55 +907,148 @@ function vMov() {
   </div>
   <label class="f" for="fecha">Ir a otro día</label>
   <input id="fecha" type="date" value="${dia}" max="${HOY()}" onchange="elegirDia(this.value)">
-  <h2>Movimientos del día</h2>
-  ${todo.length ? `<ul class="list">${todo.map(m => `
-    <li>
-      <div class="ls">
-        <b>${m.t === "v" ? esc((m.items || []).map(i => i.n).join(" + ")) || "Venta" : esc(m.concepto)}</b>
-        <small>${hora(m.ts)} · ${m.t === "v" ? esc(m.pago || "") : esc(m.rubro || "Gasto")}${m.por ? " · " + esc(m.por) : ""}</small>
-        ${m.t === "v" && (m.items || []).some(i => i.s && i.s.length) ? `<small>${esc(m.items.flatMap(i => i.s || []).join(", "))}</small>` : ""}
-      </div>
-      <div class="r">
-        <b class="tnum ${m.t === "v" ? "pos" : "neg"}">${m.t === "v" ? "+" : "−"}${$$(m.total ?? m.monto).slice(1)}</b>
-        ${esDueno() ? `<br><button class="lnk" onclick="seguro('¿Anular este movimiento? No se puede deshacer.',()=>anular('${m.t}','${m.id}'))">Anular</button>` : ""}
-      </div>
-    </li>`).join("")}</ul>` : `<p class="vacio">Todavía no hay movimientos este día. Tocá el botón + para registrar.</p>`}`;
+  <h2>Ventas por turno</h2>
+  ${lista.length ? lista.map(g => {
+    const abierto = turnoAbierto === g.k || lista.length === 1;
+    return `<div class="card turno">
+      <button class="cab" onclick="turnoAbierto=${abierto && lista.length > 1 ? "null" : `'${g.k}'`};pintar()">
+        <div style="min-width:0;text-align:left"><b>Turno de ${esc(g.quien)}</b>
+          <small>${g.desde ? hora(g.desde) + " a " + (g.hasta ? hora(g.hasta) : "ahora") : "sin marcar llegada"} · ${g.v.length} venta${g.v.length > 1 ? "s" : ""}</small></div>
+        <b class="tnum pos" style="font-size:19px">${$$(suma(g.v, "total"))}</b>
+      </button>
+      <div class="pagos">${pagosDe(g.v).map(([p, m]) => `<span>${p} <b class="tnum">${$$(m)}</b></span>`).join("")}</div>
+      ${abierto ? `<ul class="vent">${g.v.slice().reverse().map(v => `
+        <li><span class="h tnum">${hora(v.ts)}</span>
+          <div class="q">${(v.items || []).map(lineaVenta).join("<br>") || "Venta"}${v.pedido ? ` <span class="sab">· pedido ${esc(v.pedido)}</span>` : ""}</div>
+          <div class="r"><b class="tnum">${$$(v.total)}</b><small>${esc(v.pago || "")}</small>
+          ${esDueno() ? `<button class="lnk" onclick="seguro('¿Anular esta venta? No se puede deshacer.',()=>anular('v','${v.id}'))">Anular</button>` : ""}</div></li>`).join("")}</ul>`
+        : `<p class="hint" style="margin:6px 0 0">Tocá para ver cada venta.</p>`}
+    </div>`;
+  }).join("") : `<p class="vacio">No hubo ventas este día.</p>`}
+  <h2>Gastos del día</h2>
+  ${delDia(G, dia).length ? `<ul class="list">${delDia(G, dia).map(m => `
+    <li><div class="ls"><b>${esc(m.concepto)}</b><small>${hora(m.ts)} · ${esc(m.rubro || "Gasto")}${m.caja === false ? " · pagado aparte" : ""}${m.por ? " · " + esc(m.por) : ""}</small></div>
+      <div class="r"><b class="tnum neg">−${$$(m.monto).slice(1)}</b>
+      ${esDueno() ? `<br><button class="lnk" onclick="seguro('¿Anular este gasto? No se puede deshacer.',()=>anular('g','${m.id}'))">Anular</button>` : ""}</div></li>`).join("")}</ul>`
+    : `<p class="vacio">Sin gastos.</p>`}`;
 }
 
 // Escribir cuántos baldes hay de verdad (al empezar, o cuando al contar no coincide).
 function corregirStock(i) {
-  const r = prompt("¿Cuántos baldes de " + MENU[i] + " hay ahora? (ej. 2,5)", sigue(i) ? baldes(i).toFixed(1).replace(".", ",") : "");
+  const r = prompt("¿Cuántos baldes de " + MENU[i] + " hay ahora? (ej. 2,5 · 0 si no hay)", cargado(i) ? baldes(i).toFixed(1).replace(".", ",") : "");
   if (r === null || r.trim() === "") return;
   const n = num(r);
   if (!(n >= 0) || n > 200) { notificar("Ese número no sirve"); return; }
   D.guardar("sabores", "s" + i, { nombre: MENU[i], baldes: n, ord: i, activo: true }).then(pintar).catch(fallo);
 }
+/* ---------- Lista de compras (solo el dueño) ----------
+   Cuánto se vendió de cada sabor en las últimas 2 semanas, cuánto queda, y cuánto pedir para
+   llegar a la próxima entrega con 1 balde de colchón. Las cantidades se pueden tocar a mano. */
+const DIAS_CONSUMO = 14;
+let compraAjuste = {};
+function consumoDiario() {
+  const desde = correrDia(HOY(), -DIAS_CONSUMO), c = MENU.map(() => 0), dias = new Set();
+  V.filter(v => v.dia >= desde).forEach(v => {
+    dias.add(v.dia);
+    (v.items || []).forEach(it => {
+      const b = baldesItem(it), sab = it.s || [];
+      if (!b || !sab.length) return;
+      sab.forEach(n => { const k = MENU.indexOf(n); if (k >= 0) c[k] += b / sab.length; });
+    });
+  });
+  const n = Math.max(1, dias.size);
+  return { porDia: c.map(x => x / n), dias: dias.size };
+}
+function sugerencias() {
+  const cada = +ajuste("cadaCuanto", 7) || 7, { porDia, dias } = consumoDiario();
+  const filas = MENU.map((n, i) => {
+    const b = baldes(i), uso = porDia[i];
+    const auto = uso > 0 || cargado(i) ? Math.max(0, Math.ceil(uso * cada + POCO - b - 1e-9)) : 0;
+    const cant = compraAjuste[i] != null ? compraAjuste[i] : auto;
+    return { n, i, b, uso, auto, cant };
+  });
+  return { filas, cada, dias };
+}
+function cambiarCompra(i, d) {
+  const f = sugerencias().filas[i];
+  compraAjuste[i] = Math.max(0, f.cant + d); pintar();
+}
+function textoCompra() {
+  const { filas } = sugerencias(), pedir = filas.filter(f => f.cant > 0);
+  const otros = FA.map(x => x.nombre).concat(S.filter(x => x.tipo === "insumo").map(x => x.nombre));
+  let t = "Pedido Frigo Shop — " + lindo(HOY()) + "\n";
+  if (pedir.length) t += "\nHelado (baldes de 10 L):\n" + pedir.map(f => "• " + f.n + ": " + f.cant).join("\n") + "\n";
+  if (otros.length) t += "\nOtras cosas:\n" + otros.map(x => "• " + x).join("\n") + "\n";
+  return t;
+}
+function compartirCompra(como) {
+  const t = textoCompra();
+  if (como === "wa") { window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank"); return; }
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
+    () => notificar("Lista copiada. Pegala donde quieras."),
+    () => notificar("No se pudo copiar"));
+}
+function vCompras() {
+  if (!esDueno()) return vFaltan();
+  const { filas, cada, dias } = sugerencias(), pedir = filas.filter(f => f.cant > 0);
+  const otros = FA.map(x => x.nombre).concat(S.filter(x => x.tipo === "insumo").map(x => x.nombre));
+  const resto = filas.filter(f => f.cant === 0);
+  const uSem = f => (f.uso * 7).toFixed(1).replace(".", ",");
+  return `<h2>Lista de compras</h2>
+  <p class="hint" style="margin-top:-4px">Calculada con lo que se vendió ${dias > 1 ? `en los últimos ${dias} días con ventas` : dias ? "en el último día con ventas (con más días, el cálculo mejora)" : "(todavía no hay ventas: por ahora sale del stock)"}
+    y lo que queda, para que te alcance hasta la próxima entrega con 1 balde de sobra. Tocá − o + para cambiar.</p>
+  <label class="et">¿Cada cuántos días te traen helado?
+    <div class="row" style="margin-top:4px">${[3, 7, 10, 14].map(d => `<button class="chip${d === cada ? " on" : ""}" onclick="setAjuste('cadaCuanto',${d});compraAjuste={}">${d} días</button>`).join("")}</div></label>
+  ${pedir.length ? `<ul class="list" style="margin-top:12px">${pedir.map(f => `
+    <li><div class="ls"><b>${esc(f.n)}</b><small>Quedan ${f.b.toFixed(1).replace(".", ",")} · se venden ≈ ${uSem(f)} por semana</small></div>
+      <div class="r" style="display:flex;align-items:center;gap:6px">
+        <button class="chip" onclick="cambiarCompra(${f.i},-1)" aria-label="Uno menos">−</button>
+        <b class="tnum" style="font-size:20px;min-width:24px;text-align:center">${f.cant}</b>
+        <button class="chip" onclick="cambiarCompra(${f.i},1)" aria-label="Uno más">+</button></div></li>`).join("")}</ul>
+    <p class="hint">Total: <b>${suma(pedir, "cant")} baldes</b>.</p>`
+    : `<p class="vacio">Con lo que hay alcanza. Si querés sumar algo, elegilo abajo.</p>`}
+  ${otros.length ? `<h2 style="font-size:16px">Otras cosas anotadas</h2><ul class="list">${otros.map(x => `<li><b>${esc(x)}</b></li>`).join("")}</ul>` : ""}
+  <div class="grid2" style="margin-top:14px">
+    <button class="btn verde" onclick="compartirCompra('wa')" ${pedir.length || otros.length ? "" : "disabled"}>WhatsApp</button>
+    <button class="btn ghost" onclick="compartirCompra('copiar')" ${pedir.length || otros.length ? "" : "disabled"}>Copiar</button>
+  </div>
+  ${resto.length ? `<h2 style="font-size:16px">Sumar otro sabor</h2>
+    <div class="row">${resto.map(f => `<button class="chip" onclick="cambiarCompra(${f.i},1)">${esc(f.n)}</button>`).join("")}</div>` : ""}`;
+}
+
+let filtroStock = "todos";
 function vFaltan() {
-  const cr = criticos();
+  const cr = criticos(), cargo = stockCargado();
   // Lo anotado antes vivía en "sabores"; se muestra igual hasta que se tache.
   const insumos = FA.map(x => ({ ...x, col: "faltantes" })).concat(S.filter(x => x.tipo === "insumo").map(x => ({ ...x, col: "sabores" })));
+  const filas = MENU.map((n, i) => ({ n, i, b: baldes(i) }));
+  const cuenta = { poco: filas.filter(f => f.b > NADA && f.b < POCO).length, sin: filas.filter(f => f.b <= NADA).length };
+  const ver = filas.filter(f => filtroStock === "poco" ? f.b > NADA && f.b < POCO : filtroStock === "sin" ? f.b <= NADA : true);
   return `
-  ${cr.length ? `<div class="urgente lat">¡REPONER YA! ${esc(cr.map(x => x[0]).join(", "))}</div>` : ""}
-  ${!stockCargado() ? `<p class="hint">Todavía no seguís ningún sabor. Abajo, tocá cada sabor que tengas y cargá cuántos baldes hay.
-    Desde ahí cada venta descuenta sola (1 bocha = 1/${bochasPorBalde()} de balde, 1 litro = 1/${litrosPorBalde()}) y la app avisa cuando quedan menos de ${ROJO}.</p>`
-    : `<p class="hint">Cada venta descuenta sola. Cuando llega mercadería tocá <b>Llegó 1 balde</b>; si al contar no coincide, <b>Corregir</b>.</p>`}
-  ${seguidos().length ? `<h2>Sabores que seguís</h2><ul class="list">${seguidos().map(i => {
-    const b = baldes(i), [cl, txt] = semaforo(b);
+  ${esDueno() ? `<button class="btn grande" onclick="ir('compras')">Armar lista de compras</button>` : ""}
+  ${cr.length ? `<div class="urgente${cr.some(x => x[2] <= NADA) ? " lat" : ""}">Poco o sin stock: ${esc(listar(cr.map(x => x[0]), 6))}</div>` : ""}
+  <h2>Stock de sabores</h2>
+  <p class="hint" style="margin-top:-4px">${cargo
+    ? `Cada venta descuenta sola (1 bocha = 1/${bochasPorBalde()} de balde, 1 litro = 1/${litrosPorBalde()}).${esDueno() ? " Cuando llega mercadería tocá <b>+1</b>; si al contar no coincide, <b>Corregir</b>." : ""}`
+    : esDueno() ? "Para empezar, tocá <b>Corregir</b> en cada sabor que tengas y escribí cuántos baldes hay. Los demás quedan sin stock." : "El dueño todavía no cargó el stock."}</p>
+  <div class="row">
+    <button class="chip${filtroStock === "todos" ? " on" : ""}" onclick="filtroStock='todos';pintar()">Todos (${MENU.length})</button>
+    <button class="chip${filtroStock === "poco" ? " on" : ""}" onclick="filtroStock='poco';pintar()">Poco stock (${cuenta.poco})</button>
+    <button class="chip${filtroStock === "sin" ? " on" : ""}" onclick="filtroStock='sin';pintar()">Sin stock (${cuenta.sin})</button>
+  </div>
+  ${ver.length ? `<ul class="list" style="margin-top:10px">${ver.map(({ n, i, b }) => {
+    const [cl, txt] = estadoStock(b);
     return `<li class="stk">
       <div class="ls" style="display:flex;gap:10px;align-items:center;flex:1">
-        <span class="sem ${cl}${cl === "s-r" ? " lat" : ""}"></span>
-        <div style="min-width:0"><b>${esc(MENU[i])}</b><small>${txt} · ≈ ${Math.floor(b * bochasPorBalde())} bochas</small></div>
+        <span class="sem ${cl}"></span>
+        <div style="min-width:0"><b>${esc(n)}</b><small>${txt}${b > NADA ? ` · ≈ ${Math.floor(b * bochasPorBalde())} bochas` : ""}</small></div>
       </div>
-      <div class="r"><b class="tnum" style="font-size:20px">${b.toFixed(1).replace(".", ",")}</b><small>baldes</small></div>
+      <div class="r"><b class="tnum" style="font-size:19px">${b.toFixed(1).replace(".", ",")}</b><small>baldes</small></div>
       ${esDueno() ? `<div class="acc">
-        <button class="chip" onclick="reponer(${i},1)">Llegó 1 balde</button>
-        <button class="chip" onclick="corregirStock(${i})">Corregir</button>
-        <button class="lnk" onclick="dejarDeSeguir(${i})">No seguir</button></div>` : ""}
+        <button class="chip" onclick="reponer(${i},1)" ${cargado(i) ? "" : "hidden"}>+1 balde</button>
+        <button class="chip" onclick="corregirStock(${i})">Corregir</button></div>` : ""}
     </li>`;
-  }).join("")}</ul>` : ""}
-  ${esDueno() ? `<h2>${stockCargado() ? "Sumar otro sabor" : "¿Qué sabores tenés?"}</h2>
-    <p class="hint" style="margin-top:-4px">Tocá el sabor y escribí cuántos baldes hay.</p>
-    <div class="row">${MENU.map((n, i) => sigue(i) ? "" : `<button class="chip" onclick="corregirStock(${i})">${esc(n)}</button>`).join("")}</div>` : ""}
+  }).join("")}</ul>` : `<p class="vacio">Ninguno en esta lista.</p>`}
   <h2>Otras cosas que faltan</h2>
   <div class="row" style="flex-wrap:nowrap;gap:8px">
     <input id="ins" placeholder="Ej. cucuruchos, servilletas">
@@ -916,7 +1061,7 @@ function vFaltan() {
 
 function vMas() {
   const todos = [
-    ["mov", "Movimientos del día", "Cada venta y cada gasto, con hora y quién lo cargó", true],
+    ["mov", "Historial de ventas", "Por turno: quién cobró, qué se vendió y cómo pagaron", true],
     ["personal", esDueno() ? "Personal y horarios" : "Mis horas y viajes",
       enNube() ? (esDueno() ? "Quién está trabajando y cuántas horas lleva" : "Lo que llevás trabajado") : "Necesita conectar la nube", true],
     ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia", true],
@@ -1120,9 +1265,9 @@ function hojaVenta() {
   if (eligiendo) {
     const ag = agotados();
     return `<b>${esc(eligiendo.nombre)}</b>
-      <p class="hint" style="margin:4px 0 10px">Elegí hasta ${eligiendo.mx} sabor${eligiendo.mx > 1 ? "es" : ""}. Los tachados se acabaron.</p>
+      <p class="hint" style="margin:4px 0 10px">Elegí hasta ${eligiendo.mx} sabor${eligiendo.mx > 1 ? "es" : ""}.${ag.length ? " Los marcados en rojo figuran sin stock." : ""}</p>
       <div class="row">${MENU.map((s, i) => `
-        <button class="chip${elegidos.includes(s) ? " on" : ""}" ${ag.includes(s) ? "disabled" : ""} onclick="tocarSabor(${i})">${esc(s)}</button>`).join("")}</div>
+        <button class="chip${elegidos.includes(s) ? " on" : ""}${ag.includes(s) ? " sinst" : ""}" onclick="tocarSabor(${i})">${esc(s)}${ag.includes(s) ? " · sin stock" : ""}</button>`).join("")}</div>
       <button class="btn" onclick="sumarAlTicket()" ${elegidos.length ? "" : "disabled"}>
         ${elegidos.length ? `Agregar (${elegidos.length})` : "Elegí al menos un sabor"}</button>
       <button class="btn ghost" onclick="eligiendo=null;elegidos=[];pintarHoja()">Volver</button>`;
@@ -1180,6 +1325,7 @@ function tocarProducto(id) {
 }
 function tocarSabor(i) {
   const s = MENU[i], k = elegidos.indexOf(s);
+  if (k < 0 && agotados().includes(s)) notificar(s + " figura sin stock. Si hay, avisale al dueño para que lo corrija.");
   if (k >= 0) elegidos.splice(k, 1);
   else { if (elegidos.length >= eligiendo.mx) elegidos.shift(); elegidos.push(s); }
   pintarHoja();
@@ -1219,7 +1365,7 @@ async function cobrar() {
   cobrando = true;
   const id = D.nuevoId();                       // id propio: dos toques no cobran dos veces
   const venta = {
-    dia: HOY(), ts: Date.now(), por: quien, pago,
+    dia: HOY(), ts: Date.now(), por: quien, pago, turno: (miFichaje() || {}).id || null,
     items: ticket.map(t => ({ n: t.n, p: t.p, c: t.c, bal: t.bal || 0, s: t.s })),
     total: suma(ticket, "p"), costo: suma(ticket, "c"),
   };
@@ -1265,19 +1411,19 @@ async function anular(t, id) {
   catch (e) { fallo(e); }
 }
 async function reponer(i, n, callado) {
-  // Una venta solo descuenta de los sabores que se siguen; los demás no se controlan.
-  if (n < 0 && !sigue(i)) return;
+  // Si a un sabor nunca se le cargó stock, no hay nada que descontar.
+  if (n < 0 && !cargado(i)) return;
   const id = "s" + i;
   // Seguir un sabor empieza al cargarle baldes; desde ahí el semáforo lo vigila aunque llegue a cero.
-  const activo = sigue(i) || n > 0;
+  const activo = true;
   try {
     // Quien no es dueño solo toca "baldes" (las reglas no le dejan cambiar nada más).
-    if (D.sumar) await D.sumar("sabores", id, "baldes", n, esDueno() || !sigue(i) ? { nombre: MENU[i], ord: i, activo } : undefined);
+    if (D.sumar) await D.sumar("sabores", id, "baldes", n, esDueno() ? { nombre: MENU[i], ord: i, activo } : undefined);
     else await D.guardar("sabores", id, { nombre: MENU[i], baldes: Math.max(0, baldes(i) + n), ord: i, activo });
     if (!callado) pintar();
   } catch (e) { if (!callado) fallo(e); }
 }
-function dejarDeSeguir(i) { D.guardar("sabores", "s" + i, { nombre: MENU[i], baldes: 0, ord: i, activo: false }).then(pintar).catch(fallo); }
+
 async function agregarInsumo() {
   const v = ($("#ins") || {}).value?.trim(); if (!v) return;
   try { await D.guardar("faltantes", D.nuevoId(), { nombre: v.slice(0, 80), por: quien, ts: Date.now() }); $("#ins").value = ""; pintar(); }
@@ -1407,8 +1553,8 @@ async function importar() {
 /* ============================================================
    PINTAR
    ============================================================ */
-const VISTAS = { hoy: vHoy, mov: vMov, pedidos: vPedidos, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal, jornada: vJornada };
-const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas", mov: "mas" };
+const VISTAS = { compras: vCompras, hoy: vHoy, mov: vMov, pedidos: vPedidos, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal, jornada: vJornada };
+const PADRE = { compras: "faltan", rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas", mov: "mas" };
 
 function pintar() {
   if (!D) return;
@@ -1440,6 +1586,7 @@ function ir(v) {
   // Cambiar de pantalla suelta el campo que tenía el cursor (en iPhone el toque no lo suelta solo).
   const foco = document.activeElement; if (foco && foco.blur && foco !== document.body) foco.blur();
   vista = v; window.scrollTo(0, 0); pintar();
+  if (v === "compras") cargarHistoria(correrDia(HOY(), -DIAS_CONSUMO));
   if (v === "rep") cargarHistoria(correrDia(HOY(), -2 * (+ajuste("rango", 7))));   // el período y el anterior, para comparar
   else if (dia < correrDia(HOY(), -VIVO)) cargarHistoria(dia);
 }

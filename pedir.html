@@ -219,8 +219,11 @@ function alertaSuave(t) {
     });
     bd.collection("sabores").onSnapshot(s => {
       S = s.docs.map(d => ({ ...d.data(), id: d.id }));
-      const sigue = S.some(x => x.activo);
-      agotados = sigue ? S.filter(x => x.activo && (+x.baldes || 0) <= 0).map(x => x.nombre) : [];
+      // Mismo criterio que la app del local: una vez que el dueño cargó el stock, todo sabor
+      // sin baldes (o que nunca se cargó) figura "Hoy no hay".
+      const cargados = S.filter(x => x.tipo !== "insumo" && /^s\d+$/.test(x.id));
+      const hay = new Set(cargados.filter(x => (+x.baldes || 0) > 0.005).map(x => x.id));
+      agotados = cargados.length ? MENU.filter((n, i) => !hay.has("s" + i)) : [];
       pintar();
     });
   } catch (e) {

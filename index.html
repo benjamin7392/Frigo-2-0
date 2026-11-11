@@ -179,7 +179,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.5";
+const VERSION = "2.6";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -290,8 +290,17 @@ function depositoFirestore(auth, bd) {
 }
 
 const hayNube = () => !!(window.FRIGO && window.FRIGO.firebase && window.FRIGO.firebase.apiKey && !/PEGAR_ACA/.test(window.FRIGO.firebase.apiKey));
+// Se pide en modo "cors" para que la app pueda guardar Firebase y abrir sin internet.
+// Si el servidor no lo aceptara, se reintenta del modo clásico: nunca debe ser un motivo para no cargar.
 const cargarScript = src => new Promise((ok, mal) => {
-  const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = mal; document.head.appendChild(e);
+  const poner = cors => {
+    const e = document.createElement("script");
+    if (cors) e.crossOrigin = "anonymous";
+    e.src = src; e.onload = ok;
+    e.onerror = () => { e.remove(); cors ? poner(false) : mal(new Error("No cargó " + src)); };
+    document.head.appendChild(e);
+  };
+  poner(true);
 });
 
 /* ============================================================
@@ -1324,8 +1333,16 @@ async function encender() {
   if (hayNube()) {
     try {
       const v = "10.14.1", base = "https://www.gstatic.com/firebasejs/" + v + "/firebase-";
-      await cargarScript(base + "app-compat.js");
-      await Promise.all([cargarScript(base + "auth-compat.js"), cargarScript(base + "firestore-compat.js")]);
+      try {
+        await cargarScript(base + "app-compat.js");
+        await Promise.all([cargarScript(base + "auth-compat.js"), cargarScript(base + "firestore-compat.js")]);
+      } catch (e) {
+        // Sin el motor de la nube no se sigue con una base aparte en este celular:
+        // las ventas cargadas ahí nunca le llegarían al dueño.
+        $("#app").innerHTML = `<p class="vacio">No se pudo conectar. Conectate a internet y tocá Reintentar, así lo que cargues no queda separado del resto del equipo.</p>
+          <button class="btn" onclick="location.reload()">Reintentar</button>`;
+        return;
+      }
       firebase.initializeApp(window.FRIGO.firebase);
       auth = firebase.auth();
       await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
@@ -1371,23 +1388,36 @@ async function encender() {
   await encender();
 })();
 
-/* Versión nueva: avisar, nunca cortar una venta. */
+/* Actualización automática.
+   La versión nueva se activa sola y la app se recarga en cuanto no haya nada a medio hacer
+   (hoja abierta, ticket, gasto, viaje en curso o algo escrito sin guardar). Nadie toca nada. */
 if ("serviceWorker" in navigator) {
+  const habiaControlador = !!navigator.serviceWorker.controller;   // primera instalación: no hace falta recargar
+  const sinGuardar = () => [...document.querySelectorAll("input, textarea")].some(x =>
+    !["date", "hidden", "checkbox", "radio", "button"].includes(x.type) && !x.readOnly && x.value !== x.defaultValue);
+  const ocupado = () => !!(!$("#capa").hidden || ticket.length || teclado || gastoTxt || vigia !== null || sinGuardar());
+  let pendiente = false, yendo = false;
+  const intentar = () => {
+    if (!pendiente || yendo || ocupado()) return;
+    yendo = true;
+    if (document.visibilityState === "visible") { notificar("Actualizando FRIGO…"); setTimeout(() => location.reload(), 900); }
+    else location.reload();
+  };
+  setInterval(intentar, 4000);
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (habiaControlador) { pendiente = true; intentar(); } });
   addEventListener("load", async () => {
     try {
-      const reg = await navigator.serviceWorker.register("sw.js");
-      const ofrecer = w => aviso("Hay una versión nueva de FRIGO.", "Actualizar", () => {
-        if (ticket.length) { notificar("Cobrá o vaciá el ticket antes de actualizar"); return; }
-        w.postMessage({ type: "SKIP_WAITING" });
-      });
-      if (reg.waiting) ofrecer(reg.waiting);
+      const reg = await navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
+      const activar = w => { if (w) w.postMessage({ type: "SKIP_WAITING" }); };
+      activar(reg.waiting);
       reg.addEventListener("updatefound", () => {
         const w = reg.installing;
-        w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) ofrecer(w); });
+        w && w.addEventListener("statechange", () => { if (w.state === "installed") activar(w); });
       });
-      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
-      let yendo = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => { if (!yendo) { yendo = true; location.reload(); } });
+      const buscar = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") buscar(); });
+      addEventListener("online", buscar);
+      setInterval(buscar, 15 * 60 * 1000);
     } catch (e) {}
   });
 }

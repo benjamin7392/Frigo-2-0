@@ -56,8 +56,11 @@ nadie más los ve. Por eso:
 
 1. Subí el número de `V` en `sw.js` (`frigo-v2.0` → `frigo-v2.1`) y `VERSION` en `index.html`.
 2. Reemplazá los archivos en el hosting.
-3. Al equipo le aparece un cartel amarillo **Actualizar**. Si están con un ticket abierto,
-   la app los obliga a cobrarlo primero.
+3. Nadie tiene que tocar nada: al abrir la app, o al volver a ella, el celular busca la
+   versión nueva, la instala solo y se recarga en cuanto no haya nada a medio hacer
+   (hoja de venta abierta, ticket sin cobrar, gasto a medio cargar, viaje en curso o un
+   campo escrito sin guardar). Con una venta en marcha espera; no la corta.
+4. Para confirmar qué versión tiene un celular: **Más**, abajo de todo, dice "FRIGO 2.x".
 
 ## Probá esto antes de confiarle la caja
 

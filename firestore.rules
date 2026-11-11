@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function entro()  { return request.auth != null; }
+    // Cambiá este correo si el dueño usa otro usuario.
+    function dueno()  { return entro() && request.auth.token.email == 'dueno@frigo.app'; }
+    function miCorreo() { return request.auth.token.email; }
+
+    // Precios y ajustes: solo el dueño.
+    match /productos/{id} { allow read: if entro(); allow write: if dueno(); }
+    match /ajustes/{id}   { allow read: if entro(); allow write: if dueno(); }
+
+    // Ventas y gastos: cualquiera carga, solo el dueño corrige o anula.
+    match /ventas/{id}  { allow read, create: if entro(); allow update, delete: if dueno(); }
+    match /gastos/{id}  { allow read, create: if entro(); allow update, delete: if dueno(); }
+    match /cierres/{id} { allow read, create: if entro(); allow update, delete: if dueno(); }
+
+    // Stock: cualquiera puede descontar al vender; solo el dueño repone.
+    match /sabores/{id} {
+      allow read: if entro();
+      allow create, delete: if dueno();
+      allow update: if dueno()
+        || (entro()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['baldes'])
+            && request.resource.data.baldes <= resource.data.baldes);
+    }
+
+    // Control de horarios: cada uno marca lo suyo, nadie puede fichar por otro.
+    match /fichajes/{id} {
+      allow read:   if entro();
+      allow create: if entro() && request.resource.data.correo == miCorreo();
+      allow update: if dueno() || (entro() && resource.data.correo == miCorreo());
+      allow delete: if dueno();
+    }
+  }
+}

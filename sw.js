@@ -1,7 +1,7 @@
 /* FRIGO: deja la app abrible sin internet. No se actualiza solo: espera el toque del usuario. */
-const V = "frigo-v2.0";
-const CASA = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
-const FUERA = ["fonts.googleapis.com", "fonts.gstatic.com"];
+const V = "frigo-v2.1";
+const CASA = ["./", "index.html", "config.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const FUERA = ["fonts.googleapis.com", "fonts.gstatic.com", "www.gstatic.com"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(V).then(c => Promise.allSettled(CASA.map(u => c.add(u)))));

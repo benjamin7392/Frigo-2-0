@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>FRIGO</title>
+<script src="config.js"></script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -124,6 +125,13 @@ nav button.on:after{content:"";position:absolute;top:0;left:50%;transform:transl
 .toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translate(-50%,16px);z-index:50;background:var(--yel);color:#0a2650;border-radius:999px;padding:10px 16px;font-size:13.5px;font-weight:500;display:flex;align-items:center;gap:12px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;max-width:92vw}
 .toast.ver{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .toast button{background:#0a2650;color:#fff;border:0;border-radius:999px;padding:7px 13px;font-weight:600;font-size:13px;flex:none}
+.card.ficha{border-color:var(--entra);margin-bottom:14px}
+.card.ficha.dentro{border-color:var(--teal)}
+.eti{display:block;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--entra);font-weight:600}
+.card.ficha.dentro .eti{color:var(--teal)}
+.card.ojo{border-color:var(--yel)}
+.card.ojo b{color:var(--yel)}
+code{background:rgba(0,0,0,.3);border-radius:6px;padding:1px 5px;font-size:13.5px}
 .pant{text-align:center;padding:40px 10px}
 .pant ol{text-align:left;max-width:300px;margin:16px auto;padding-left:20px}
 .pant li{margin:9px 0}
@@ -165,7 +173,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.0";
+const VERSION = "2.1";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -193,7 +201,7 @@ const suma = (a, k) => a.reduce((t, x) => t + (+x[k] || 0), 0);
    - cloud  : Firestore propio, si config.js trae las claves
    - local  : IndexedDB, solo este celular, 100% sin internet
    ============================================================ */
-const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes"];
+const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes"];
 
 function depositoLocal() {
   const cache = {}, oyentes = {};
@@ -251,6 +259,29 @@ function depositoClaude(db) {
   };
 }
 
+function depositoFirestore(auth, bd) {
+  let pend = 0;
+  return {
+    modo: "cloud", enVivo: false, get pendientes() { return pend; },
+    async iniciar() { try { await bd.enablePersistence(); } catch (e) {} },
+    ver(col, cb) {
+      return bd.collection(col).onSnapshot({ includeMetadataChanges: true }, s => {
+        this.enVivo = !s.metadata.fromCache;
+        if (col === "ventas") pend = s.docs.filter(d => d.metadata.hasPendingWrites).length;
+        cb(s.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, e => { if (e && e.code === "permission-denied") aviso("Falta publicar las reglas de seguridad: mirá PASOS-NUBE.md, paso 4."); });
+    },
+    nuevoId() { return bd.collection("ventas").doc().id; },
+    guardar(col, id, datos) { return bd.doc(col + "/" + id).set({ ...datos, id }, { merge: true }); },
+    borrar(col, id) { return bd.doc(col + "/" + id).delete(); },
+  };
+}
+
+const hayNube = () => !!(window.FRIGO && window.FRIGO.firebase && window.FRIGO.firebase.apiKey && !/PEGAR_ACA/.test(window.FRIGO.firebase.apiKey));
+const cargarScript = src => new Promise((ok, mal) => {
+  const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = mal; document.head.appendChild(e);
+});
+
 /* ============================================================
    ESTADO
    ============================================================ */
@@ -263,12 +294,12 @@ const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro",
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 
 let D = null;                                  // depósito
-let P = [], S = [], V = [], G = [], C = [], AJ = [];
+let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [];
 let vista = "hoy", dia = HOY(), linea = "Ice Cream";
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
 let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
 let cobrando = false, ultimaVenta = null, temporizador = null;
-let soloLectura = false, quien = "equipo";
+let soloLectura = false, quien = "equipo", yo = null, relojVivo = null;
 
 const esDueno = () => !soloLectura;
 const ajuste = (k, d) => { const a = AJ.find(x => x.id === "cfg"); return a && a[k] !== undefined ? a[k] : d; };
@@ -296,6 +327,38 @@ const efectivoEsperado = d => {
   return (+ajuste("fondo", 0)) + suma(v.filter(x => x.pago === "Efectivo"), "total") - suma(g, "monto");
 };
 const cierreDe = d => C.find(x => x.dia === d);
+
+/* ---------- control de horarios ---------- */
+const enNube = () => D && D.modo === "cloud";
+const miFichaje = () => FI.find(f => f.persona === quien && !f.salida);
+const adentro = () => FI.filter(f => !f.salida).sort((a, b) => a.entrada - b.entrada);
+const trabajado = f => (f.salida || Date.now()) - f.entrada;
+const reloj = ms => {
+  const m = Math.max(0, Math.round(ms / 60000)), h = Math.floor(m / 60);
+  return h ? h + " h " + pad(m % 60) + " min" : m + " min";
+};
+const lunesDe = d => { const [a, m, dd] = d.split("-").map(Number); const x = new Date(a, m - 1, dd);
+  return correrDia(d, -((x.getDay() + 6) % 7)); };
+const gente = () => [...new Set(FI.map(f => f.persona))].sort();
+const horasEntre = (persona, desde) => FI.filter(f => f.persona === persona && f.dia >= desde).reduce((t, f) => t + trabajado(f), 0);
+
+async function fichar() {
+  if (miFichaje()) return;
+  try {
+    await D.guardar("fichajes", D.nuevoId(), { dia: HOY(), persona: quien, correo: (yo && yo.email) || "", entrada: Date.now(), salida: null });
+    notificar("Llegada marcada a las " + hora(Date.now()));
+  } catch (e) { fallo(e); }
+}
+async function salir() {
+  const f = miFichaje(); if (!f) return;
+  try {
+    await D.guardar("fichajes", f.id, { salida: Date.now() });
+    notificar("Salida marcada. Trabajaste " + reloj(Date.now() - f.entrada) + ".");
+  } catch (e) { fallo(e); }
+}
+async function cerrarFichaje(id, cuando) {
+  try { await D.guardar("fichajes", id, { salida: cuando }); notificar("Salida cargada"); } catch (e) { fallo(e); }
+}
 
 /* ============================================================
    GRÁFICO: una sola serie, barras finas, punta redondeada.
@@ -342,6 +405,7 @@ function vHoy() {
   const pagos = PAGOS.map(p => [p, suma(r.v.filter(x => x.pago === p), "total")]).filter(x => x[1] > 0);
 
   return `
+  ${tarjetaFichaje()}
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
     <b>${hoyEs ? "Hoy" : lindo(dia)}</b>
@@ -378,6 +442,55 @@ function vHoy() {
     </div>`
     : `<div class="card"><p class="hint" style="margin:0 0 4px">En caja debería haber <b class="tnum">${$$(efectivoEsperado(dia))}</b> en efectivo.</p>
        <button class="btn" onclick="ir('cerrar')">Cerrar el día</button></div>`}`;
+}
+
+function tarjetaFichaje() {
+  if (!enNube()) return "";
+  const f = miFichaje();
+  if (!f) return `<div class="card ficha">
+      <span class="eti">Tu jornada</span>
+      <p style="margin:2px 0 0">Hola ${esc(quien)}. Marcá que llegaste para empezar a contar tus horas.</p>
+      <button class="btn verde" onclick="fichar()">Llegué</button>
+    </div>`;
+  return `<div class="card ficha dentro">
+      <span class="eti">Estás trabajando</span>
+      <p style="margin:2px 0 0">Entraste a las <b>${hora(f.entrada)}</b>. Llevás <b class="tnum">${reloj(trabajado(f))}</b>.</p>
+      <button class="btn ghost" onclick="salir()">Me voy</button>
+    </div>`;
+}
+
+function vPersonal() {
+  if (!enNube()) return `<h2>Personal y horarios</h2>
+    <div class="card ojo"><b>Falta conectar la nube</b>
+    <p class="hint" style="margin:6px 0 0">Para que las llegadas de tu equipo te lleguen a vos, los celulares tienen que compartir los datos. Está todo escrito y listo: seguí el archivo <b>PASOS-NUBE.md</b> del repositorio y pegá los cuatro valores en <code>config.js</code>. Son unos diez minutos, una sola vez.</p></div>`;
+  const hoyD = HOY(), lun = lunesDe(hoyD), mes = hoyD.slice(0, 8) + "01";
+  const dentro = adentro(), personas = gente();
+  return `<h2>Ahora en el local</h2>
+  ${dentro.length ? `<ul class="list">${dentro.map(f => `
+    <li><div class="ls" style="display:flex;gap:10px;align-items:center">
+      <span class="sem s-v"></span><div><b>${esc(f.persona)}</b><small>Entró ${hora(f.entrada)}</small></div></div>
+    <div class="r"><b class="tnum">${reloj(trabajado(f))}</b>
+      ${esDueno() ? `<br><button class="lnk" onclick="cerrarFichaje('${f.id}',Date.now())">Marcar salida</button>` : ""}</div></li>`).join("")}</ul>`
+    : `<p class="vacio">No hay nadie fichado en este momento.</p>`}
+
+  <h2>Horas trabajadas</h2>
+  ${personas.length ? `<div class="scroll"><table>
+    <tr><th>Persona</th><th class="n">Hoy</th><th class="n">Semana</th><th class="n">Mes</th></tr>
+    ${personas.map(n => `<tr><td>${esc(n)}</td>
+      <td class="n">${reloj(horasEntre(n, hoyD))}</td>
+      <td class="n">${reloj(horasEntre(n, lun))}</td>
+      <td class="n">${reloj(horasEntre(n, mes))}</td></tr>`).join("")}
+  </table></div><p class="hint">La semana arranca el lunes. Las jornadas sin salida marcada se cuentan hasta este momento.</p>`
+    : `<p class="vacio">Todavía nadie marcó llegada.</p>`}
+
+  <h2>Jornadas de ${dia === HOY() ? "hoy" : lindo(dia)}</h2>
+  ${FI.filter(f => f.dia === dia).length ? `<ul class="list">${FI.filter(f => f.dia === dia)
+    .sort((a, b) => b.entrada - a.entrada).map(f => `
+    <li><div class="ls"><b>${esc(f.persona)}</b><small>${hora(f.entrada)} → ${f.salida ? hora(f.salida) : "sin marcar la salida"}</small></div>
+    <div class="r"><b class="tnum">${reloj(trabajado(f))}</b>
+      ${esDueno() && !f.salida ? `<br><button class="lnk" onclick="cerrarFichaje('${f.id}',Date.now())">Cerrar</button>` : ""}
+      ${esDueno() ? `<br><button class="lnk" onclick="D.borrar('fichajes','${f.id}')">Borrar</button>` : ""}</div></li>`).join("")}</ul>`
+    : `<p class="vacio">Sin jornadas ese día.</p>`}`;
 }
 
 function vMov() {
@@ -439,6 +552,7 @@ function vFaltan() {
 
 function vMas() {
   const items = [
+    ["personal", "Personal y horarios", enNube() ? "Quién está trabajando y cuántas horas lleva" : "Necesita conectar la nube"],
     ["rep", "Reportes", "Semana, mes y lo más vendido"],
     ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia"],
     ["prod", "Productos y precios", "Qué vendés y a cuánto"],
@@ -867,8 +981,8 @@ async function importar() {
 /* ============================================================
    PINTAR
    ============================================================ */
-const VISTAS = { hoy: vHoy, mov: vMov, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos };
-const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas" };
+const VISTAS = { hoy: vHoy, mov: vMov, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal };
+const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas" };
 
 function pintar() {
   if (!D) return;
@@ -879,7 +993,8 @@ function pintar() {
   $("#est").innerHTML = (D.modo === "local"
       ? `<b class="pt">En este celular</b>`
       : `<b class="${D.enVivo ? "pt" : "pa"}">${D.enVivo ? "En vivo" : "Sin conexión"}</b>`)
-    + (D.pendientes ? `<span style="color:var(--yel)">${D.pendientes} sin subir</span>` : "");
+    + (D.pendientes ? `<span style="color:var(--yel)">${D.pendientes} sin subir</span>` : "")
+    + (enNube() && yo ? `<button class="who" onclick="salirDeLaCuenta()">${esc(quien)} · salir</button>` : "");
 
   const cr = criticos();
   $("#pinF").hidden = !cr.length;
@@ -928,6 +1043,33 @@ function fallo(e) {
 const esIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const instalada = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
+let auth = null;
+function pantallaIngreso(msg) {
+  $("#nav").hidden = true;
+  $("#app").innerHTML = `<h2>Entrar</h2>
+    <p class="hint">Usá el usuario que te dio el dueño. Queda abierto: no vas a tener que entrar todos los días.</p>
+    <label class="f" for="lu">Usuario</label>
+    <input id="lu" autocapitalize="none" autocomplete="username" placeholder="Ej. caja1">
+    <label class="f" for="lp">Clave</label>
+    <input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')ingresar()">
+    <button class="btn" onclick="ingresar()">Entrar</button>
+    <p class="hint" id="lm">${esc(msg || "")}</p>`;
+  $("#est").innerHTML = "";
+}
+function ingresar() {
+  let correo = $("#lu").value.trim().toLowerCase();
+  if (!correo) return;
+  if (!correo.includes("@")) correo += "@frigo.app";
+  $("#lm").textContent = "Entrando…";
+  auth.signInWithEmailAndPassword(correo, $("#lp").value)
+    .catch(() => { $("#lm").textContent = "Usuario o clave incorrectos"; });
+}
+function salirDeLaCuenta() {
+  if (miFichaje() && !confirmarSalida) { notificar("Todavía no marcaste tu salida", "Marcar y salir", async () => { await salir(); auth.signOut(); }); return; }
+  auth.signOut();
+}
+let confirmarSalida = false;
+
 function pantallaInstalar() {
   $("#app").innerHTML = `<div class="pant">
     <h2 style="font-size:20px">Instalá FRIGO antes de usarla</h2>
@@ -941,10 +1083,52 @@ function pantallaInstalar() {
     <p class="hint">En iPhone esto solo funciona desde Safari.</p></div>`;
 }
 
+async function encender() {
+  const destinos = { productos: x => P = x, sabores: x => S = x, ventas: x => V = x, gastos: x => G = x,
+                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x };
+  COLS.forEach(col => D.ver(col, datos => {
+    destinos[col](datos.slice().sort((a, b) => (b.ts || b.entrada || 0) - (a.ts || a.entrada || 0) || (a.ord || 0) - (b.ord || 0)));
+    if (col === "productos") P.sort((a, b) => (a.ord || 0) - (b.ord || 0));
+    pintar();
+  }));
+  try { const ok = await navigator.storage?.persist?.();
+    if (ok === false && D.modo === "local") aviso("El celular podría borrar los datos guardados sin señal. Hacé una copia seguido, desde Más › Datos."); } catch (e) {}
+  // Reloj en vivo: mientras alguien esté fichado, el tiempo trabajado se actualiza solo.
+  clearInterval(relojVivo);
+  relojVivo = setInterval(() => { if (enNube() && adentro().length && ["hoy", "personal"].includes(vista)) pintar(); }, 30000);
+  $("#nav").hidden = false;
+  pintar();
+}
+
 (async function arrancar() {
-  // En iPhone sin instalar, los datos de caja corren riesgo: no dejamos vender.
   if (esIOS() && !instalada() && !(window.claude && window.claude.use)) return pantallaInstalar();
 
+  // 1) Nube propia: roles, control de horarios y datos compartidos entre celulares.
+  if (hayNube()) {
+    try {
+      const v = "10.14.1", base = "https://www.gstatic.com/firebasejs/" + v + "/firebase-";
+      await cargarScript(base + "app-compat.js");
+      await Promise.all([cargarScript(base + "auth-compat.js"), cargarScript(base + "firestore-compat.js")]);
+      firebase.initializeApp(window.FRIGO.firebase);
+      auth = firebase.auth();
+      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      const bd = firebase.firestore();
+      D = depositoFirestore(auth, bd);
+      await D.iniciar();
+      auth.onAuthStateChanged(async u => {
+        yo = u;
+        if (!u) { clearInterval(relojVivo); pantallaIngreso(); return; }
+        quien = (u.email || "").split("@")[0];
+        soloLectura = u.email !== (window.FRIGO.dueno || "").toLowerCase();
+        await encender();
+      });
+      return;
+    } catch (e) {
+      aviso("No se pudo conectar con la nube. La app sigue andando con los datos de este celular.");
+    }
+  }
+
+  // 2) Dentro de Claude: base compartida del artefacto.
   try {
     if (window.claude && window.claude.use) {
       const bd = await window.claude.use("db");
@@ -953,6 +1137,7 @@ function pantallaInstalar() {
       D = depositoClaude(bd);
       soloLectura = usuario ? !(usuario.canEdit() ?? true) : false;
     } else {
+      // 3) Sin nube: todo vive en este celular.
       D = depositoLocal();
     }
     await D.iniciar();
@@ -960,19 +1145,7 @@ function pantallaInstalar() {
     $("#app").innerHTML = `<p class="vacio">No se pudo abrir la base de datos de este celular. Probá cerrar y volver a abrir la app.</p>`;
     return;
   }
-
-  const destinos = { productos: x => P = x, sabores: x => S = x, ventas: x => V = x, gastos: x => G = x, cierres: x => C = x, ajustes: x => AJ = x };
-  COLS.forEach(col => D.ver(col, datos => {
-    destinos[col](datos.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0) || (a.ord || 0) - (b.ord || 0)));
-    if (col === "productos") P.sort((a, b) => (a.ord || 0) - (b.ord || 0));
-    pintar();
-  }));
-
-  // Pedir que el celular no borre lo guardado sin señal.
-  try { const ok = await navigator.storage?.persist?.(); if (ok === false) aviso("El celular podría borrar los datos guardados sin señal. Hacé una copia seguido, desde Más › Datos."); } catch (e) {}
-
-  $("#nav").hidden = false;
-  pintar();
+  await encender();
 })();
 
 /* Versión nueva: avisar, nunca cortar una venta. */

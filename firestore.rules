@@ -4,7 +4,7 @@ service cloud.firestore {
 
     function entro()  { return request.auth != null; }
     // Cambiá este correo si el dueño usa otro usuario.
-    function dueno()  { return entro() && request.auth.token.email == 'dueno@frigo.app'; }
+    function dueno()  { return entro() && request.auth.token.email == 'benjaes7392@gmail.com'; }
     function miCorreo() { return request.auth.token.email; }
 
     // Precios y ajustes: solo el dueño.
@@ -24,6 +24,14 @@ service cloud.firestore {
         || (entro()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['baldes'])
             && request.resource.data.baldes <= resource.data.baldes);
+    }
+
+    // Viajes del reparto: cada uno registra los suyos.
+    match /viajes/{id} {
+      allow read:   if entro();
+      allow create: if entro() && request.resource.data.correo == miCorreo();
+      allow update: if dueno() || (entro() && resource.data.correo == miCorreo());
+      allow delete: if dueno();
     }
 
     // Control de horarios: cada uno marca lo suyo, nadie puede fichar por otro.

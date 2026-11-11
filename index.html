@@ -126,6 +126,12 @@ nav button.on:after{content:"";position:absolute;top:0;left:50%;transform:transl
 .toast.ver{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 .toast button{background:#0a2650;color:#fff;border:0;border-radius:999px;padding:7px 13px;font-weight:600;font-size:13px;flex:none}
 .card.ficha{border-color:var(--entra);margin-bottom:14px}
+.card.viaje{border-color:var(--yel)}
+.card.viaje .eti{color:var(--yel)}
+.card.viaje.encurso{border-color:var(--mag)}
+.card.viaje.encurso .eti{color:var(--mag)}
+.gps{text-transform:none;letter-spacing:0;font-size:11px;color:var(--entra);margin-left:6px}
+.gps.apagado{color:var(--mute)}
 .card.ficha.dentro{border-color:var(--teal)}
 .eti{display:block;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--entra);font-weight:600}
 .card.ficha.dentro .eti{color:var(--teal)}
@@ -173,7 +179,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.1";
+const VERSION = "2.2";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -201,7 +207,7 @@ const suma = (a, k) => a.reduce((t, x) => t + (+x[k] || 0), 0);
    - cloud  : Firestore propio, si config.js trae las claves
    - local  : IndexedDB, solo este celular, 100% sin internet
    ============================================================ */
-const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes"];
+const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes", "viajes"];
 
 function depositoLocal() {
   const cache = {}, oyentes = {};
@@ -294,14 +300,15 @@ const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro",
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 
 let D = null;                                  // depósito
-let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [];
+let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [];
 let vista = "hoy", dia = HOY(), linea = "Ice Cream";
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
 let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
 let cobrando = false, ultimaVenta = null, temporizador = null;
 let soloLectura = false, quien = "equipo", yo = null, relojVivo = null;
+let rol = "dueño", conGps = false, vigia = null, viajeEnCurso = null, ultimoGuardado = 0;
 
-const esDueno = () => !soloLectura;
+const esDueno = () => rol === "dueño";
 const ajuste = (k, d) => { const a = AJ.find(x => x.id === "cfg"); return a && a[k] !== undefined ? a[k] : d; };
 const setAjuste = (k, v) => D.guardar("ajustes", "cfg", { [k]: v });
 
@@ -327,6 +334,82 @@ const efectivoEsperado = d => {
   return (+ajuste("fondo", 0)) + suma(v.filter(x => x.pago === "Efectivo"), "total") - suma(g, "monto");
 };
 const cierreDe = d => C.find(x => x.dia === d);
+
+/* ---------- roles ---------- */
+const ficha = correo => (window.FRIGO && window.FRIGO.gente && window.FRIGO.gente[(correo || "").toLowerCase()]) || null;
+const esCadete = () => rol === "cadete";
+const puedeVender = () => rol !== "cadete";
+const puedeViajar = () => conGps;
+
+/* ---------- ubicación ----------
+   Solo mientras la app está abierta y solo durante un viaje.
+   El navegador no deja leer el GPS en segundo plano, y así tiene que ser. */
+const metros = (a, b) => {
+  const f = Math.PI / 180, R = 6371000;
+  const dLa = (b.lat - a.lat) * f, dLo = (b.lng - a.lng) * f;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * f) * Math.cos(b.lat * f) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+const km = m => (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km";
+const donde = () => new Promise(ok => {
+  if (!navigator.geolocation) return ok(null);
+  navigator.geolocation.getCurrentPosition(
+    p => ok({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), p: Math.round(p.coords.accuracy) }),
+    () => ok(null), { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 });
+});
+function seguir() {
+  if (vigia !== null || !navigator.geolocation) return;
+  vigia = navigator.geolocation.watchPosition(async pos => {
+    const v = miViaje(); if (!v) return pararSeguimiento();
+    const pt = { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6), t: Date.now() };
+    const exac = pos.coords.accuracy;
+    const pts = (v.puntos || []).slice();
+    const ult = pts[pts.length - 1];
+    if (exac > 80) return;                               // lectura dudosa: no sirve
+    if (ult && metros(ult, pt) < 12) return;             // quieto: es ruido del GPS
+    if (pts.length > 600) return;                        // techo de seguridad
+    pts.push(pt);
+    const recorrido = pts.reduce((t, p, i) => i ? t + metros(pts[i - 1], p) : 0, 0);
+    // Guardamos cada 25 segundos como mucho, para no castigar datos ni batería.
+    if (Date.now() - ultimoGuardado < 25000) { v.puntos = pts; v.metros = recorrido; return; }
+    ultimoGuardado = Date.now();
+    try { await D.guardar("viajes", v.id, { puntos: pts, metros: Math.round(recorrido) }); } catch (e) {}
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+}
+function pararSeguimiento() { if (vigia !== null) { navigator.geolocation.clearWatch(vigia); vigia = null; } }
+
+/* ---------- viajes ---------- */
+const miViaje = () => VJ.find(v => v.persona === quien && !v.llegada);
+const metrosDe = v => {
+  if (v.metros) return v.metros;
+  return v.desde && v.hasta ? metros(v.desde, v.hasta) : 0;
+};
+const kmEntre = (persona, desde) => VJ.filter(v => v.persona === persona && v.dia >= desde).reduce((t, v) => t + metrosDe(v), 0);
+
+async function salirAEntregar() {
+  if (miViaje()) return;
+  notificar("Buscando tu ubicación…");
+  const pos = await donde();
+  try {
+    const id = D.nuevoId();
+    seguir();                                   // encender antes de pintar, para que el cartel diga la verdad
+    await D.guardar("viajes", id, { dia: HOY(), persona: quien, correo: (yo && yo.email) || "",
+      salida: Date.now(), llegada: null, desde: pos, hasta: null, puntos: pos ? [{ ...pos, t: Date.now() }] : [], metros: 0 });
+    notificar(pos ? "Viaje empezado" : "Viaje empezado, pero sin señal de GPS");
+    pintar();
+  } catch (e) { fallo(e); }
+}
+async function volviDelViaje() {
+  const v = miViaje(); if (!v) return;
+  pararSeguimiento();
+  const pos = await donde();
+  const pts = (v.puntos || []).concat(pos ? [{ ...pos, t: Date.now() }] : []);
+  const recorrido = pts.length > 1 ? pts.reduce((t, p, i) => i ? t + metros(pts[i - 1], p) : 0, 0) : 0;
+  try {
+    await D.guardar("viajes", v.id, { llegada: Date.now(), hasta: pos, puntos: pts, metros: Math.round(recorrido) });
+    notificar("Viaje cerrado: " + km(recorrido) + " en " + reloj(Date.now() - v.salida));
+  } catch (e) { fallo(e); }
+}
 
 /* ---------- control de horarios ---------- */
 const enNube = () => D && D.modo === "cloud";
@@ -405,7 +488,7 @@ function vHoy() {
   const pagos = PAGOS.map(p => [p, suma(r.v.filter(x => x.pago === p), "total")]).filter(x => x[1] > 0);
 
   return `
-  ${tarjetaFichaje()}
+  ${tarjetaFichaje()}${tarjetaViaje()}
   <div class="row" style="justify-content:space-between;align-items:center">
     <button class="chip" onclick="moverDia(-1)" aria-label="Día anterior">‹</button>
     <b>${hoyEs ? "Hoy" : lindo(dia)}</b>
@@ -459,13 +542,53 @@ function tarjetaFichaje() {
     </div>`;
 }
 
+function tarjetaViaje() {
+  if (!puedeViajar() || !enNube()) return "";
+  const v = miViaje();
+  if (!miFichaje() && !v) return "";
+  if (!v) return `<div class="card ficha viaje">
+      <span class="eti">Reparto</span>
+      <p style="margin:2px 0 0">Cuando salgas a entregar, marcalo y la app registra el recorrido.</p>
+      <button class="btn" onclick="salirAEntregar()">Salgo a entregar</button>
+    </div>`;
+  const rec = metrosDe(v);
+  return `<div class="card ficha viaje encurso">
+      <span class="eti">Estás en la calle ${vigia !== null ? '<span class="gps">● registrando ubicación</span>' : '<span class="gps apagado">● sin señal de GPS</span>'}</span>
+      <p style="margin:2px 0 0">Saliste ${hora(v.salida)}. Llevás <b class="tnum">${reloj(Date.now() - v.salida)}</b>${rec ? ` y <b class="tnum">${km(rec)}</b>` : ""}.</p>
+      <button class="btn verde" onclick="volviDelViaje()">Entregué, vuelvo</button>
+    </div>`;
+}
+
+function listaViajes(persona, cual) {
+  const lista = VJ.filter(v => v.dia === cual && (!persona || v.persona === persona)).sort((a, b) => b.salida - a.salida);
+  if (!lista.length) return `<p class="vacio">Sin viajes ese día.</p>`;
+  return `<ul class="list">${lista.map(v => `
+    <li><div class="ls"><b>${esc(v.persona)}</b>
+      <small>${hora(v.salida)} → ${v.llegada ? hora(v.llegada) : "todavía en la calle"}</small>
+      ${!v.puntos || v.puntos.length < 3 ? `<small>distancia en línea recta</small>` : ""}</div>
+    <div class="r"><b class="tnum">${km(metrosDe(v))}</b><small>${reloj((v.llegada || Date.now()) - v.salida)}</small>
+      ${esDueno() ? `<br><button class="lnk" onclick="D.borrar('viajes','${v.id}')">Borrar</button>` : ""}</div></li>`).join("")}</ul>`;
+}
+
+// Pantalla única del cadete: llegada, salida y viajes. Nada más.
+function vJornada() {
+  const f = miFichaje();
+  return `${tarjetaFichaje()}${tarjetaViaje()}
+  ${f || VJ.some(v => v.persona === quien && v.dia === HOY()) ? `<h2>Tus viajes de hoy</h2>${listaViajes(quien, HOY())}
+  <ul class="list" style="margin-top:10px"><li><span>Recorrido de hoy</span><b class="tnum">${km(kmEntre(quien, HOY()))}</b></li>
+  <li><span>Esta semana</span><b class="tnum">${km(kmEntre(quien, lunesDe(HOY())))}</b></li></ul>` : ""}
+  <p class="hint">La ubicación se registra únicamente mientras tenés un viaje abierto y la app en pantalla. Al cerrar el viaje, se apaga.</p>`;
+}
+
 function vPersonal() {
   if (!enNube()) return `<h2>Personal y horarios</h2>
     <div class="card ojo"><b>Falta conectar la nube</b>
     <p class="hint" style="margin:6px 0 0">Para que las llegadas de tu equipo te lleguen a vos, los celulares tienen que compartir los datos. Está todo escrito y listo: seguí el archivo <b>PASOS-NUBE.md</b> del repositorio y pegá los cuatro valores en <code>config.js</code>. Son unos diez minutos, una sola vez.</p></div>`;
   const hoyD = HOY(), lun = lunesDe(hoyD), mes = hoyD.slice(0, 8) + "01";
-  const dentro = adentro(), personas = gente();
-  return `<h2>Ahora en el local</h2>
+  const dentro = esDueno() ? adentro() : adentro().filter(f => f.persona === quien);
+  const personas = esDueno() ? gente() : [quien];
+  const conKm = personas.filter(n => kmEntre(n, mes) > 0);
+  return `<h2>${esDueno() ? "Ahora en el local" : "Tu jornada"}</h2>
   ${dentro.length ? `<ul class="list">${dentro.map(f => `
     <li><div class="ls" style="display:flex;gap:10px;align-items:center">
       <span class="sem s-v"></span><div><b>${esc(f.persona)}</b><small>Entró ${hora(f.entrada)}</small></div></div>
@@ -483,8 +606,15 @@ function vPersonal() {
   </table></div><p class="hint">La semana arranca el lunes. Las jornadas sin salida marcada se cuentan hasta este momento.</p>`
     : `<p class="vacio">Todavía nadie marcó llegada.</p>`}
 
+  ${conKm.length ? `<h2>Kilómetros recorridos</h2><div class="scroll"><table>
+    <tr><th>Persona</th><th class="n">Hoy</th><th class="n">Semana</th><th class="n">Mes</th></tr>
+    ${conKm.map(n => `<tr><td>${esc(n)}</td><td class="n">${km(kmEntre(n, hoyD))}</td>
+      <td class="n">${km(kmEntre(n, lun))}</td><td class="n">${km(kmEntre(n, mes))}</td></tr>`).join("")}
+  </table></div>
+  <h2>Viajes de ${dia === HOY() ? "hoy" : lindo(dia)}</h2>${listaViajes(esDueno() ? null : quien, dia)}` : ""}
+
   <h2>Jornadas de ${dia === HOY() ? "hoy" : lindo(dia)}</h2>
-  ${FI.filter(f => f.dia === dia).length ? `<ul class="list">${FI.filter(f => f.dia === dia)
+  ${FI.filter(f => f.dia === dia && (esDueno() || f.persona === quien)).length ? `<ul class="list">${FI.filter(f => f.dia === dia && (esDueno() || f.persona === quien))
     .sort((a, b) => b.entrada - a.entrada).map(f => `
     <li><div class="ls"><b>${esc(f.persona)}</b><small>${hora(f.entrada)} → ${f.salida ? hora(f.salida) : "sin marcar la salida"}</small></div>
     <div class="r"><b class="tnum">${reloj(trabajado(f))}</b>
@@ -551,23 +681,25 @@ function vFaltan() {
 }
 
 function vMas() {
-  const items = [
-    ["personal", "Personal y horarios", enNube() ? "Quién está trabajando y cuántas horas lleva" : "Necesita conectar la nube"],
-    ["rep", "Reportes", "Semana, mes y lo más vendido"],
-    ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia"],
-    ["prod", "Productos y precios", "Qué vendés y a cuánto"],
-    ["datos", "Datos y respaldo", "Exportar para el contador, copia de seguridad"],
+  const todos = [
+    ["personal", esDueno() ? "Personal y horarios" : "Mis horas y viajes",
+      enNube() ? (esDueno() ? "Quién está trabajando y cuántas horas lleva" : "Lo que llevás trabajado") : "Necesita conectar la nube", true],
+    ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia", true],
+    ["rep", "Reportes", "Semana, mes y lo más vendido", esDueno()],
+    ["prod", "Productos y precios", "Qué vendés y a cuánto", esDueno()],
+    ["datos", "Datos y respaldo", "Exportar para el contador, copia de seguridad", esDueno()],
   ];
+  const items = todos.filter(x => x[3]);
   return `<h2>Más</h2>
   <ul class="list">${items.map(([v, t, s]) => `
     <li onclick="ir('${v}')" style="cursor:pointer"><div class="ls"><b>${t}</b><small>${s}</small></div><span class="r">›</span></li>`).join("")}</ul>
-  <h2>Ajustes</h2>
+  ${esDueno() ? `<h2>Ajustes</h2>
   <div class="card">
     <label class="f" for="fondo">Fondo fijo de caja (lo que queda siempre para dar vuelto)</label>
     <input id="fondo" type="number" inputmode="decimal" step="any" value="${pesos(ajuste("fondo", 0))}"
       onchange="setAjuste('fondo',cent(this.value));notificar('Guardado')">
     <p class="hint" style="margin-bottom:0">Se suma al efectivo que la app espera encontrar al cerrar el día.</p>
-  </div>
+  </div>` : ""}
   <h2>Esta app</h2>
   <div class="card">
     <p style="margin:0">Modo <b>${D.modo === "local" ? "local: los datos viven solo en este celular" : D.modo === "cloud" ? "nube propia: se comparte entre celulares" : "nube de Claude: se comparte entre celulares"}</b>.</p>
@@ -981,7 +1113,7 @@ async function importar() {
 /* ============================================================
    PINTAR
    ============================================================ */
-const VISTAS = { hoy: vHoy, mov: vMov, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal };
+const VISTAS = { hoy: vHoy, mov: vMov, faltan: vFaltan, mas: vMas, rep: vRep, cerrar: vCerrar, prod: vProd, datos: vDatos, personal: vPersonal, jornada: vJornada };
 const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: "mas" };
 
 function pintar() {
@@ -1000,6 +1132,7 @@ function pintar() {
   $("#pinF").hidden = !cr.length;
   $("#pinF").textContent = cr.length;
 
+  if (esCadete() && !["jornada"].includes(vista)) vista = "jornada";
   const atras = PADRE[vista];
   $("#app").innerHTML = (atras ? `<button class="lnk" onclick="ir('${atras}')">‹ Volver a Más</button>` : "") + (VISTAS[vista] || vHoy)();
   $("#pie").textContent = "FRIGO " + VERSION + " · control interno, no reemplaza a tu contador";
@@ -1085,7 +1218,7 @@ function pantallaInstalar() {
 
 async function encender() {
   const destinos = { productos: x => P = x, sabores: x => S = x, ventas: x => V = x, gastos: x => G = x,
-                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x };
+                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x, viajes: x => VJ = x };
   COLS.forEach(col => D.ver(col, datos => {
     destinos[col](datos.slice().sort((a, b) => (b.ts || b.entrada || 0) - (a.ts || a.entrada || 0) || (a.ord || 0) - (b.ord || 0)));
     if (col === "productos") P.sort((a, b) => (a.ord || 0) - (b.ord || 0));
@@ -1095,8 +1228,13 @@ async function encender() {
     if (ok === false && D.modo === "local") aviso("El celular podría borrar los datos guardados sin señal. Hacé una copia seguido, desde Más › Datos."); } catch (e) {}
   // Reloj en vivo: mientras alguien esté fichado, el tiempo trabajado se actualiza solo.
   clearInterval(relojVivo);
-  relojVivo = setInterval(() => { if (enNube() && adentro().length && ["hoy", "personal"].includes(vista)) pintar(); }, 30000);
-  $("#nav").hidden = false;
+  relojVivo = setInterval(() => {
+    if (!enNube()) return;
+    if ((adentro().length || miViaje()) && ["hoy", "personal", "jornada"].includes(vista)) pintar();
+  }, 30000);
+  // Si quedó un viaje abierto (se recargó la app), se retoma el registro.
+  if (enNube() && puedeViajar() && miViaje()) seguir();
+  $("#nav").hidden = esCadete();
   pintar();
 }
 
@@ -1117,9 +1255,15 @@ async function encender() {
       await D.iniciar();
       auth.onAuthStateChanged(async u => {
         yo = u;
+        pararSeguimiento();
         if (!u) { clearInterval(relojVivo); pantallaIngreso(); return; }
-        quien = (u.email || "").split("@")[0];
-        soloLectura = u.email !== (window.FRIGO.dueno || "").toLowerCase();
+        const f = ficha(u.email);
+        quien = f ? f.nombre : (u.email || "").split("@")[0];
+        rol = f ? f.rol : "empleado";
+        conGps = f ? !!f.gps : false;
+        soloLectura = rol !== "dueño";
+        if (!f) aviso("Tu usuario todavía no tiene rol asignado. Avisale al dueño.");
+        vista = esCadete() ? "jornada" : "hoy";
         await encender();
       });
       return;

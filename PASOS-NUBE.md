@@ -1,9 +1,10 @@
 # Conectar FRIGO a la nube
 
-Esto prende tres cosas que hoy no existen:
+Esto prende cuatro cosas que hoy no existen:
 
-- **Usuarios y roles.** Cada empleado entra con su usuario. El dueño ve todo; el empleado no puede cambiar precios ni anular ventas.
-- **Control de horarios.** El empleado marca "Llegué" y "Me voy" de un toque, y vos lo ves en vivo desde tu celular, con las horas de hoy, de la semana y del mes.
+- **Usuarios y roles.** Cada uno entra con su usuario. El dueño ve todo; el empleado vende y cierra caja pero no toca precios; el cadete solo marca su jornada y sus viajes.
+- **Control de horarios.** Se marca "Llegué" y "Me voy" de un toque, y el dueño lo ve en vivo, con las horas de hoy, de la semana y del mes.
+- **Registro de viajes.** El reparto marca "Salgo a entregar" y "Entregué", y queda la distancia y la duración de cada viaje, con el total de kilómetros por día, semana y mes.
 - **Datos compartidos.** Las ventas de todos los celulares se ven en el mismo lugar, al instante.
 
 Es gratis y se hace una sola vez. Unos 10 minutos.
@@ -17,22 +18,33 @@ Entrá a `console.firebase.google.com` con tu cuenta de Google y creá un proyec
 
 ## 2. Crear los usuarios
 
-En el menú de la izquierda: **Compilación → Authentication → Comenzar**.
-Elegí **Correo electrónico/contraseña** y activalo. Guardá.
+En el menú de la izquierda: **Security → Authentication → Comenzar**.
+Pestaña **Sign-in method**: activá **Correo electrónico/contraseña** (solo el primer
+interruptor, no el de link por correo). Guardá.
 
 Después, en la pestaña **Users → Agregar usuario**, creá uno por persona:
 
-| Correo | Quién es |
-|---|---|
-| `dueno@frigo.app` | vos |
-| `caja1@frigo.app` | un empleado |
-| `caja2@frigo.app` | otro empleado |
+| Correo | Quién es | Qué ve |
+|---|---|---|
+| `benjaes7392@gmail.com` | el dueño | todo |
+| `guegui@frigo.app` | Guegui | ventas, cierre, faltantes, su jornada |
+| `camila@frigo.app` | Camila | lo mismo, más registro de viajes |
+| `cadete@frigo.app` | el cadete | solo llegada, salida y viajes |
 
-Las claves las elegís vos, mínimo 6 caracteres. En la app cada uno escribe solo `caja1`,
-sin el `@frigo.app`.
+Las claves las elegís vos, mínimo 6 caracteres. En la app, los empleados escriben solo
+`guegui` o `cadete`, sin el `@frigo.app`.
+
+> **El dueño va con un correo real.** `@frigo.app` no es un dominio que exista: si se
+> pierde esa clave, el mail de recuperación no llega a ningún lado y el acceso se pierde
+> para siempre. Las claves de los empleados sí las puede resetear el dueño desde esta misma
+> pantalla, así que para ellos el correo corto no es problema.
 
 > **Nunca un usuario compartido.** Si todos entran con el mismo, no vas a saber quién
-> cobró ni quién fichó.
+> cobró, quién fichó ni quién hizo cada viaje.
+
+Para agregar o sacar gente después: creás el usuario acá y me avisás para que lo cargue en
+`config.js` con su rol. Cuando alguien deja de trabajar, borrás su usuario en esta pantalla
+el mismo día.
 
 ## 3. Crear la base de datos
 
@@ -72,13 +84,28 @@ de ingreso. Después de entrar, lo primero que ve el empleado es un botón grand
 ## Después, el día a día
 
 - El empleado abre la app, toca **Llegué**, y trabaja normal. Al irse toca **Me voy**.
+- El cadete ve una sola pantalla: **Llegué**, **Salgo a entregar**, **Entregué**, **Me voy**. Nada más.
 - Vos entrás a **Más → Personal y horarios** y ves quién está en el local, hace cuánto, y
   las horas de cada uno por día, semana y mes.
 - Si alguien se olvidó de marcar la salida, vos la cerrás desde ahí.
 - Cuando alguien deja de trabajar, borrá su usuario en Firebase Authentication el mismo día.
 
+## Sobre la ubicación
+
+El GPS se lee **solo mientras hay un viaje abierto y la app está en pantalla**. Al cerrar el
+viaje se apaga, y fuera del horario no se registra nada. Mientras está activo, la persona ve
+un cartel que lo dice.
+
+Esa es también la limitación técnica: un navegador no puede leer el GPS con la pantalla
+bloqueada o la app en segundo plano. Por eso la distancia se mide entre los puntos marcados
+y, si la app quedó abierta durante el viaje, con el recorrido real. Cuando hay pocos puntos,
+la app avisa que la distancia es en línea recta.
+
+Avisales a los tres que la app registra ubicación durante la jornada.
+
 ## Qué mirar los primeros días
 
 - Que las horas den lo que esperabas contra lo que viste en el local.
+- Que los kilómetros de un viaje conocido den parecido a lo real.
 - Que un empleado no pueda entrar a cambiar un precio.
 - Que una venta cargada sin señal aparezca en tu celular cuando vuelve internet.

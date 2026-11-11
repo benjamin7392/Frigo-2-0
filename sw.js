@@ -1,5 +1,5 @@
 /* FRIGO: deja la app abrible sin internet. No se actualiza solo: espera el toque del usuario. */
-const V = "frigo-v2.2";
+const V = "frigo-v2.3";
 const CASA = ["./", "index.html", "config.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 const FUERA = ["fonts.googleapis.com", "fonts.gstatic.com", "www.gstatic.com"];
 

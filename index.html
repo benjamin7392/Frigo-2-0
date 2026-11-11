@@ -179,7 +179,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.2";
+const VERSION = "2.3";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -265,13 +265,19 @@ function depositoClaude(db) {
   };
 }
 
+// Cuánto pasado se trae cada colección. Acota la lectura para no salirse
+// nunca del plan gratuito, y alcanza de sobra para los reportes de 90 días.
+const VENTANA = { ventas: 150, gastos: 150, fichajes: 150, viajes: 150, cierres: 400 };
+
 function depositoFirestore(auth, bd) {
   let pend = 0;
   return {
     modo: "cloud", enVivo: false, get pendientes() { return pend; },
     async iniciar() { try { await bd.enablePersistence(); } catch (e) {} },
     ver(col, cb) {
-      return bd.collection(col).onSnapshot({ includeMetadataChanges: true }, s => {
+      let q = bd.collection(col);
+      if (VENTANA[col]) q = q.where("dia", ">=", correrDia(HOY(), -VENTANA[col]));
+      return q.onSnapshot({ includeMetadataChanges: true }, s => {
         this.enVivo = !s.metadata.fromCache;
         if (col === "ventas") pend = s.docs.filter(d => d.metadata.hasPendingWrites).length;
         cb(s.docs.map(d => ({ id: d.id, ...d.data() })));

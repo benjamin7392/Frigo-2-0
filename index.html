@@ -77,6 +77,12 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .btn.ghost{background:none;border:1.5px solid var(--line)}
 .btn.verde{background:var(--entra);color:#06281c}
 .list li .ls{min-width:0}.ls b,.ls small{overflow-wrap:anywhere}
+.list li.stk{flex-wrap:wrap}.stk b{white-space:normal}
+.stk .acc{flex-basis:100%;display:flex;gap:8px;align-items:center;margin-top:8px}
+.stk .acc .lnk{margin-left:auto}
+.et{display:block;font-size:11.5px;color:var(--mute);text-align:left;margin-bottom:4px}
+.et input,.et select{display:block;margin-top:3px}
+.mini.falta{border-color:var(--yel)}
 .fab small{display:block;font-size:11px;font-weight:600;margin-top:2px;letter-spacing:.02em}
 .btn.grande{font-size:20px;padding:18px;margin:0 0 12px}
 .tile-btn.libre{border-style:dashed}
@@ -185,7 +191,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "3.0";
+const VERSION = "3.1";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -330,12 +336,35 @@ const cargarScript = src => new Promise((ok, mal) => {
    ESTADO
    ============================================================ */
 const MENU = ["Chocolate","Chocolate blanco","Chocolate Frigo","Chocolate Rocher","Chocolate a la cubana","Dulce de leche","Dulce de leche Crocante","Dulce de leche con Nuez","Dulce leche granizado","Dulce de leche Frigo","Tramontana","Flan","Frutilla","Frutilla Frigo","Americana","Vainilla","Cereza","Frambuesa","Bananita Dolca","Banana Split","Oreo","Roclets","Menta Granizada","Crema del Cielo","Durazno","Ananá","Limón","Mango","Sandía","Granizado","Frutos del bosque","Mantecol","Kinotos al whisky","Kinder"];
-// [nombre, cuántos sabores se eligen, kg que salen de la cámara]
-const TAM = [["1 bocha",1,.1],["2 bochas",2,.2],["3 bochas",3,.3],["1/4 litro",2,.25],["1/2 litro",3,.5],["1 litro",4,1]];
+// [nombre, cuántos sabores se eligen, en qué se mide ("b" bochas, "l" litros de pote), cuánto]
+const TAM = [["1 bocha",1,"b",1],["2 bochas",2,"b",2],["3 bochas",3,"b",3],["1/4 litro",2,"l",.25],["1/2 litro",3,"l",.5],["1 litro",4,"l",1]];
 const LINEAS = ["Ice Cream","Achilata premium","Otros"];
 const PAGOS = ["Efectivo","Tarjeta","Transferencia"];
 const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro","Otros"];
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
+/* Rendimiento real del balde de 10 litros, medido en el local (se cambia en Productos):
+   salen unas 90 bochas o 7 potes de 1 litro. El pote lleva menos que 10/7 porque el helado
+   del balde tiene aire y al servirlo se compacta; además queda helado en las paredes. */
+const bochasPorBalde = () => +ajuste("bochasBalde", 90) || 90;
+const litrosPorBalde = () => +ajuste("litrosBalde", 7) || 7;
+// Cuánto balde (en total, repartido entre los sabores) gasta un producto.
+function baldesDe(p) {
+  if (!p) return 0;
+  if (p.bochas) return p.bochas / bochasPorBalde();
+  if (p.litros) return p.litros / litrosPorBalde();
+  const t = TAM.find(x => p.nombre && p.nombre.endsWith(" " + x[0]));
+  if (t && p.mx) return t[2] === "b" ? t[3] / bochasPorBalde() : t[3] / litrosPorBalde();
+  return (p.kg || 0) / KG_BALDE;          // productos viejos cargados en kilos
+}
+function gastoTexto(p) {
+  if (p.bochas) return p.bochas + (p.bochas > 1 ? " bochas" : " bocha");
+  if (p.litros) return p.litros + (p.litros === 1 ? " litro" : " de litro");
+  const t = TAM.find(x => p.nombre && p.nombre.endsWith(" " + x[0]));
+  if (t && p.mx) return t[0];
+  return p.kg ? p.kg + " kg" : "no descuenta helado";
+}
+// Cuánto descontar de cada sabor por un ítem del ticket o de una venta guardada.
+const baldesItem = i => i.bal != null ? i.bal : (i.kg || 0) / KG_BALDE;
 
 let D = null;                                  // depósito
 // Lo escuchado en vivo (días recientes) y lo traído a pedido (historia). V y G son la unión.
@@ -743,8 +772,8 @@ function itemsDelLocal(p) {
   return (Array.isArray(p.items) ? p.items : []).slice(0, 20).map(i => {
     const prod = P.find(x => x.nombre === i.n);
     const sab = (Array.isArray(i.s) ? i.s : []).filter(n => MENU.includes(n)).slice(0, 6);
-    return prod ? { n: prod.nombre, p: prod.precio || 0, c: prod.costo || 0, kg: prod.kg || 0, s: sab }
-                : { n: String(i.n || "Producto").slice(0, 60), p: 0, c: 0, kg: 0, s: sab, desconocido: true };
+    return prod ? { n: prod.nombre, p: prod.precio || 0, c: prod.costo || 0, bal: baldesDe(prod), s: sab }
+                : { n: String(i.n || "Producto").slice(0, 60), p: 0, c: 0, bal: 0, s: sab, desconocido: true };
   });
 }
 async function entregarPedido(id, formaPago) {
@@ -761,8 +790,8 @@ async function entregarPedido(id, formaPago) {
     });
     const bajas = {};
     items.forEach(i => {
-      if (!i.kg || !i.s.length) return;
-      const porSabor = i.kg / i.s.length / KG_BALDE;
+      if (!i.bal || !i.s.length) return;
+      const porSabor = i.bal / i.s.length;
       i.s.forEach(n => { const k = MENU.indexOf(n); if (k >= 0) bajas[k] = (bajas[k] || 0) + porSabor; });
     });
     for (const k of Object.keys(bajas)) await reponer(+k, -bajas[k], true);
@@ -841,29 +870,40 @@ function vMov() {
     </li>`).join("")}</ul>` : `<p class="vacio">Todavía no hay movimientos este día. Tocá el botón + para registrar.</p>`}`;
 }
 
+// Escribir cuántos baldes hay de verdad (al empezar, o cuando al contar no coincide).
+function corregirStock(i) {
+  const r = prompt("¿Cuántos baldes de " + MENU[i] + " hay ahora? (ej. 2,5)", sigue(i) ? baldes(i).toFixed(1).replace(".", ",") : "");
+  if (r === null || r.trim() === "") return;
+  const n = num(r);
+  if (!(n >= 0) || n > 200) { notificar("Ese número no sirve"); return; }
+  D.guardar("sabores", "s" + i, { nombre: MENU[i], baldes: n, ord: i, activo: true }).then(pintar).catch(fallo);
+}
 function vFaltan() {
   const cr = criticos();
   // Lo anotado antes vivía en "sabores"; se muestra igual hasta que se tache.
   const insumos = FA.map(x => ({ ...x, col: "faltantes" })).concat(S.filter(x => x.tipo === "insumo").map(x => ({ ...x, col: "sabores" })));
   return `
   ${cr.length ? `<div class="urgente lat">¡REPONER YA! ${esc(cr.map(x => x[0]).join(", "))}</div>` : ""}
-  ${!stockCargado() ? `<p class="hint">Todavía no seguís ningún sabor. Tocá <b>+1</b> o <b>+5</b> en los que quieras controlar: desde ahí la app te avisa cuando bajan. Los que no sigas no molestan ni bloquean ventas.</p>` : ""}
+  ${!stockCargado() ? `<p class="hint">Todavía no seguís ningún sabor. Abajo, tocá cada sabor que tengas y cargá cuántos baldes hay.
+    Desde ahí cada venta descuenta sola (1 bocha = 1/${bochasPorBalde()} de balde, 1 litro = 1/${litrosPorBalde()}) y la app avisa cuando quedan menos de ${ROJO}.</p>`
+    : `<p class="hint">Cada venta descuenta sola. Cuando llega mercadería tocá <b>Llegó 1 balde</b>; si al contar no coincide, <b>Corregir</b>.</p>`}
   ${seguidos().length ? `<h2>Sabores que seguís</h2><ul class="list">${seguidos().map(i => {
     const b = baldes(i), [cl, txt] = semaforo(b);
-    return `<li>
-      <div class="ls" style="display:flex;gap:10px;align-items:center">
+    return `<li class="stk">
+      <div class="ls" style="display:flex;gap:10px;align-items:center;flex:1">
         <span class="sem ${cl}${cl === "s-r" ? " lat" : ""}"></span>
-        <div style="min-width:0"><b>${esc(MENU[i])}</b><small>${txt}</small></div>
+        <div style="min-width:0"><b>${esc(MENU[i])}</b><small>${txt} · ≈ ${Math.floor(b * bochasPorBalde())} bochas</small></div>
       </div>
-      <div class="r"><b class="tnum" style="font-size:18px">${b.toFixed(1)}</b><small>baldes · ${(b * KG_BALDE).toFixed(1)} kg</small>
-      ${esDueno() ? `<br><button class="lnk" onclick="reponer(${i},1)">+1</button>
-        <button class="lnk" onclick="reponer(${i},5)">+5</button>
-        <button class="lnk" onclick="reponer(${i},-0.5)">merma</button>
-        <button class="lnk" onclick="dejarDeSeguir(${i})">no seguir</button>` : ""}</div>
+      <div class="r"><b class="tnum" style="font-size:20px">${b.toFixed(1).replace(".", ",")}</b><small>baldes</small></div>
+      ${esDueno() ? `<div class="acc">
+        <button class="chip" onclick="reponer(${i},1)">Llegó 1 balde</button>
+        <button class="chip" onclick="corregirStock(${i})">Corregir</button>
+        <button class="lnk" onclick="dejarDeSeguir(${i})">No seguir</button></div>` : ""}
     </li>`;
   }).join("")}</ul>` : ""}
-  ${esDueno() ? `<h2>Empezar a seguir otro sabor</h2>
-    <div class="row">${MENU.map((n, i) => sigue(i) ? "" : `<button class="chip" onclick="reponer(${i},1)">${esc(n)} +1</button>`).join("")}</div>` : ""}
+  ${esDueno() ? `<h2>${stockCargado() ? "Sumar otro sabor" : "¿Qué sabores tenés?"}</h2>
+    <p class="hint" style="margin-top:-4px">Tocá el sabor y escribí cuántos baldes hay.</p>
+    <div class="row">${MENU.map((n, i) => sigue(i) ? "" : `<button class="chip" onclick="corregirStock(${i})">${esc(n)}</button>`).join("")}</div>` : ""}
   <h2>Otras cosas que faltan</h2>
   <div class="row" style="flex-wrap:nowrap;gap:8px">
     <input id="ins" placeholder="Ej. cucuruchos, servilletas">
@@ -881,7 +921,7 @@ function vMas() {
       enNube() ? (esDueno() ? "Quién está trabajando y cuántas horas lleva" : "Lo que llevás trabajado") : "Necesita conectar la nube", true],
     ["cerrar", "Cerrar el día", "Contar la caja y ver la diferencia", true],
     ["rep", "Reportes", "Semana, mes y lo más vendido", esDueno()],
-    ["prod", "Productos y precios", "Qué vendés y a cuánto", esDueno()],
+    ["prod", "Precios", "Qué vendés, a cuánto y cuánto helado gasta", esDueno()],
     ["datos", "Datos y respaldo", "Exportar para el contador, copia de seguridad", esDueno()],
   ];
   const items = todos.filter(x => x[3]);
@@ -988,16 +1028,26 @@ function vProd() {
   if (!P.length) return `<h2>Productos</h2>
     <p class="hint">Todavía no cargaste nada. Podés empezar con el menú de FRIGO y después ajustar los precios.</p>
     ${esDueno() ? `<button class="btn" onclick="sembrar()">Cargar el menú de FRIGO</button>` : `<p class="vacio">Pedile al dueño que cargue el menú.</p>`}`;
-  return `<h2>Productos</h2>
-  ${esDueno() ? `<p class="hint">En cada fila: precio de venta, costo y kilos que salen de la cámara.</p>` : `<p class="hint">Solo el dueño cambia precios.</p>`}
-  <ul class="list">${P.map(p => `
-    <li><div class="ls"><b>${esc(p.nombre)}</b><small>${esc(p.linea)}${p.mx ? ` · ${p.mx} sabor${p.mx > 1 ? "es" : ""}` : ""}</small>
+  const sinPrecio = P.filter(p => !p.precio).length;
+  return `<h2>Precios</h2>
+  ${esDueno() ? `<p class="hint">Escribí el precio de venta de cada cosa. El costo es opcional: sirve para ver la ganancia.
+    ${sinPrecio ? `<br><b style="color:var(--yel)">Faltan ${sinPrecio} precio${sinPrecio > 1 ? "s" : ""}.</b> Lo que no tiene precio no aparece en los pedidos de clientes.` : ""}</p>`
+    : `<p class="hint">Solo el dueño cambia precios.</p>`}
+  ${LINEAS.filter(l => P.some(p => p.linea === l)).map(l => `<h2 style="font-size:16px">${esc(l)}</h2>
+  <ul class="list">${P.filter(p => p.linea === l).map(p => `
+    <li><div class="ls"><b>${esc(p.nombre.replace(l + " ", ""))}</b>
+      <small>${p.mx ? `${p.mx} gusto${p.mx > 1 ? "s" : ""} · ` : ""}gasta ${esc(gastoTexto(p))}</small>
       ${esDueno() ? `<button class="lnk" onclick="seguro('¿Quitar ${esc(p.nombre).replace(/'/g, "")} del menú?',()=>D.borrar('productos','${p.id}'))">Quitar</button>` : ""}</div>
     <div class="r">${esDueno() ? `
-      <input class="mini tnum" type="number" inputmode="decimal" step="any" value="${pesos(p.precio)}" aria-label="Precio de ${esc(p.nombre)}" onchange="editarProd('${p.id}','precio',this.value)">
-      <input class="mini tnum" type="number" inputmode="decimal" step="any" value="${pesos(p.costo || 0)}" aria-label="Costo de ${esc(p.nombre)}" onchange="editarProd('${p.id}','costo',this.value)">
-      <input class="mini tnum" type="number" inputmode="decimal" step="any" value="${p.kg || 0}" aria-label="Kilos de ${esc(p.nombre)}" onchange="editarProd('${p.id}','kg',this.value)">`
-      : `<b class="tnum">${$$(p.precio)}</b>`}</div></li>`).join("")}</ul>
+      <label class="et">Precio $<input class="mini tnum${p.precio ? "" : " falta"}" type="number" inputmode="decimal" step="any" value="${p.precio ? pesos(p.precio) : ""}" placeholder="0" aria-label="Precio de ${esc(p.nombre)}" onchange="editarProd('${p.id}','precio',this.value)"></label>
+      <label class="et">Costo $<input class="mini tnum" type="number" inputmode="decimal" step="any" value="${p.costo ? pesos(p.costo) : ""}" placeholder="—" aria-label="Costo de ${esc(p.nombre)}" onchange="editarProd('${p.id}','costo',this.value)"></label>`
+      : `<b class="tnum">${$$(p.precio)}</b>`}</div></li>`).join("")}</ul>`).join("")}
+  ${esDueno() ? `<h2>Rendimiento del balde de 10 litros</h2>
+    <div class="card"><p class="hint" style="margin-top:0">Con esto la app calcula cuánto baja cada sabor. Si un día medís distinto, cambialo acá.</p>
+      <div class="grid2">
+        <label class="et">Bochas por balde<input class="tnum" type="number" inputmode="numeric" value="${bochasPorBalde()}" onchange="+this.value>0&&setAjuste('bochasBalde',+this.value)"></label>
+        <label class="et">Potes de 1 litro por balde<input class="tnum" type="number" inputmode="decimal" step="any" value="${litrosPorBalde()}" onchange="+this.value>0&&setAjuste('litrosBalde',+this.value)"></label>
+      </div></div>` : ""}
   ${esDueno() ? `<h2>Agregar producto</h2><div class="card">
     <input id="pn" placeholder="Nombre (ej. Cucurucho especial)">
     <div class="grid2" style="margin-top:8px">
@@ -1008,7 +1058,9 @@ function vProd() {
       <select id="pl">${LINEAS.map(l => `<option>${l}</option>`).join("")}</select>
       <input id="px" type="number" min="0" max="6" placeholder="Sabores a elegir">
     </div>
-    <input id="pk" type="number" inputmode="decimal" step="any" placeholder="Kilos que salen (ej. 0,1)" style="margin-top:8px">
+    <label class="et" style="margin-top:8px">¿Cuánto helado de los baldes lleva?
+      <select id="pk"><option value="">Nada (envasado, bebida, etc.)</option>
+        ${TAM.map(t => `<option value="${t[2]}:${t[3]}">${t[0]}</option>`).join("")}</select></label>
     <button class="btn" onclick="agregarProd()">Agregar</button></div>` : ""}`;
 }
 
@@ -1123,7 +1175,7 @@ function hojaGasto() {
 function tocarProducto(id) {
   const p = P.find(x => x.id === id); if (!p) return;
   if (!p.precio) { precioPara = p; teclado = ""; pintarHoja(); return; }
-  if (!p.mx) { ticket.push({ n: p.nombre, p: p.precio, c: p.costo || 0, kg: p.kg || 0, s: [] }); pintarHoja(); return; }
+  if (!p.mx) { ticket.push({ n: p.nombre, p: p.precio, c: p.costo || 0, bal: baldesDe(p), s: [] }); pintarHoja(); return; }
   eligiendo = p; elegidos = []; pintarHoja();
 }
 function tocarSabor(i) {
@@ -1133,16 +1185,16 @@ function tocarSabor(i) {
   pintarHoja();
 }
 function sumarAlTicket() {
-  ticket.push({ n: eligiendo.nombre, p: eligiendo.precio, c: eligiendo.costo || 0, kg: eligiendo.kg || 0, s: elegidos.slice() });
+  ticket.push({ n: eligiendo.nombre, p: eligiendo.precio, c: eligiendo.costo || 0, bal: baldesDe(eligiendo), s: elegidos.slice() });
   eligiendo = null; elegidos = []; pintarHoja();
 }
 function confirmarImporte() {
   const t = cent(teclado || "0"); if (!(t > 0)) return;
   const p = precioPara; precioPara = null; teclado = "";
-  if (p === "libre") { ticket.push({ n: "Venta por importe", p: t, c: 0, kg: 0, s: [] }); pintarHoja(); return; }
+  if (p === "libre") { ticket.push({ n: "Venta por importe", p: t, c: 0, bal: 0, s: [] }); pintarHoja(); return; }
   if (esDueno()) D.guardar("productos", p.id, { precio: t }).catch(() => {});
   const prod = { ...p, precio: t };
-  if (!prod.mx) { ticket.push({ n: prod.nombre, p: t, c: prod.costo || 0, kg: prod.kg || 0, s: [] }); pintarHoja(); return; }
+  if (!prod.mx) { ticket.push({ n: prod.nombre, p: t, c: prod.costo || 0, bal: baldesDe(prod), s: [] }); pintarHoja(); return; }
   eligiendo = prod; elegidos = []; pintarHoja();
 }
 function tocarTecla(k) {
@@ -1168,13 +1220,13 @@ async function cobrar() {
   const id = D.nuevoId();                       // id propio: dos toques no cobran dos veces
   const venta = {
     dia: HOY(), ts: Date.now(), por: quien, pago,
-    items: ticket.map(t => ({ n: t.n, p: t.p, c: t.c, kg: t.kg, s: t.s })),
+    items: ticket.map(t => ({ n: t.n, p: t.p, c: t.c, bal: t.bal || 0, s: t.s })),
     total: suma(ticket, "p"), costo: suma(ticket, "c"),
   };
   const bajas = {};
   ticket.forEach(t => {
-    if (!t.kg || !t.s || !t.s.length) return;
-    const porSabor = t.kg / t.s.length / KG_BALDE;
+    if (!baldesItem(t) || !t.s || !t.s.length) return;
+    const porSabor = baldesItem(t) / t.s.length;
     t.s.forEach(n => { const i = MENU.indexOf(n); if (i >= 0) bajas[i] = (bajas[i] || 0) + porSabor; });
   });
   try {
@@ -1251,8 +1303,12 @@ async function cerrarDia() {
 async function sembrar() {
   try {
     for (let g = 0; g < 2; g++) for (let s = 0; s < TAM.length; s++) {
-      const [nom, mx, kg] = TAM[s];
-      await D.guardar("productos", "p" + g + "_" + s, { nombre: LINEAS[g] + " " + nom, linea: LINEAS[g], mx: g ? 0 : mx, kg, precio: 0, costo: 0, ord: g * 10 + s });
+      const [nom, mx, tipo, cant] = TAM[s];
+      // Achilata viene envasado: no se eligen gustos ni descuenta de los baldes.
+      const medida = g ? {} : (tipo === "b" ? { bochas: cant } : { litros: cant });
+      const id = "p" + g + "_" + s, ya = P.find(x => x.id === id);
+      await D.guardar("productos", id, { nombre: LINEAS[g] + " " + nom, linea: LINEAS[g], mx: g ? 0 : mx, kg: 0, ...medida,
+        precio: ya ? ya.precio || 0 : 0, costo: ya ? ya.costo || 0 : 0, ord: g * 10 + s });
     }
     notificar("Menú cargado. Ahora poné los precios.");
   } catch (e) { fallo(e); }
@@ -1263,7 +1319,8 @@ async function agregarProd() {
   try {
     await D.guardar("productos", D.nuevoId(), {
       nombre: n, linea: $("#pl").value, precio: p, costo: cent($("#pc").value),
-      mx: Math.max(0, Math.min(6, parseInt($("#px").value) || 0)), kg: Math.max(0, num($("#pk").value) || 0), ord: Date.now(),
+      mx: Math.max(0, Math.min(6, parseInt($("#px").value) || 0)), kg: 0, ord: Date.now(),
+      ...(($("#pk").value || "").startsWith("b:") ? { bochas: +$("#pk").value.slice(2) } : ($("#pk").value || "").startsWith("l:") ? { litros: +$("#pk").value.slice(2) } : {}),
     });
     ["pn","pp","pc","px","pk"].forEach(i => $("#" + i).value = "");
     notificar("Producto agregado");

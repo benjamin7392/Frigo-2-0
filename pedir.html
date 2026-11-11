@@ -20,6 +20,7 @@ main{max-width:520px;margin:0 auto;
   padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));
   padding-block:16px calc(130px + env(safe-area-inset-bottom,0px))}
 .brand{font:400 40px/1 "Kaushan Script",cursive;text-align:center}
+.logo{display:block;height:84px;width:auto;margin:4px auto 16px}
 .sw{display:block;height:6px;width:90px;border-radius:6px;background:var(--mag);margin:2px auto 14px}
 h1{font-size:29px;line-height:1.2;margin:14px 0 4px;text-wrap:balance}
 .ayuda{color:var(--mute);font-size:17px;font-weight:500;margin:0 0 16px}
@@ -67,7 +68,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const $$ = c => { const v = Math.round((c || 0) / 100); return "$" + v.toLocaleString("es-AR"); };
 const pad = n => String(n).padStart(2, "0");
-const HOY = () => { const d = new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); };
+// Mismo "día del negocio" que la app del local: termina a las 6 de la mañana.
+const HOY = () => { const d = new Date(Date.now() - 6 * 3600000); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); };
 
 let bd = null, P = [], S = [], agotados = [];
 let paso = "que", elegido = null, sabores = [], entrega = null;
@@ -76,7 +78,7 @@ let datos = { nombre: "", telefono: "", direccion: "" }, numero = null, enviando
 const MENU = ["Chocolate","Chocolate blanco","Chocolate Frigo","Chocolate Rocher","Chocolate a la cubana","Dulce de leche","Dulce de leche Crocante","Dulce de leche con Nuez","Dulce leche granizado","Dulce de leche Frigo","Tramontana","Flan","Frutilla","Frutilla Frigo","Americana","Vainilla","Cereza","Frambuesa","Bananita Dolca","Banana Split","Oreo","Roclets","Menta Granizada","Crema del Cielo","Durazno","Ananá","Limón","Mango","Sandía","Granizado","Frutos del bosque","Mantecol","Kinotos al whisky","Kinder"];
 
 function pintar() {
-  const a = $("#app"); let h = `<div class="brand">Frigo</div><i class="sw"></i>`;
+  const a = $("#app"); let h = `<img class="logo" src="logo.png" alt="Frigo Shop · Heladería">`;
   let pie = false, txtBtn = "Seguir", puede = false, total = elegido ? elegido.precio : 0;
 
   if (paso === "que") {
@@ -170,26 +172,30 @@ function volver() {
   else if (paso === "datos") paso = "donde";
   pintar();
 }
-function otroPedido() { paso = "que"; elegido = null; sabores = []; entrega = null; numero = null; pintar(); }
+function otroPedido() { paso = "que"; elegido = null; sabores = []; entrega = null; numero = null; pendiente = null; pintar(); }
 
+// El pedido pendiente se reusa: si se reintenta, es el MISMO pedido (no llegan dos).
+let pendiente = null;
 async function enviar() {
   if (enviando || !bd) return;
   enviando = true; pintar();
-  const n = Math.floor(100 + Math.random() * 900);
+  if (!pendiente) pendiente = { ref: bd.collection("pedidos").doc(), n: Math.floor(1000 + Math.random() * 9000) };
+  const { ref, n } = pendiente;
+  const lento = setTimeout(() => alertaSuave("La conexión está lenta. Tu pedido se sigue enviando: no cierres esta página."), 8000);
   try {
-    const ref = bd.collection("pedidos").doc();
     await ref.set({
       id: ref.id, numero: n, dia: HOY(), ts: Date.now(), estado: "nuevo",
       uid: firebase.auth().currentUser.uid,
       nombre: datos.nombre.trim().slice(0, 60), telefono: datos.telefono.trim().slice(0, 30),
       entrega, direccion: (datos.direccion || "").trim().slice(0, 120),
-      items: [{ n: elegido.nombre, p: elegido.precio, c: elegido.costo || 0, kg: elegido.kg || 0, s: sabores.slice() }],
+      items: [{ n: elegido.nombre, p: elegido.precio, s: sabores.slice() }],
       total: elegido.precio,
     });
-    numero = n; paso = "listo";
+    numero = n; paso = "listo"; pendiente = null;
   } catch (e) {
     alertaSuave("No pudimos enviar el pedido. Revisá que tengas internet y probá de nuevo.");
   }
+  clearTimeout(lento);
   enviando = false; pintar();
 }
 function alertaSuave(t) {
@@ -206,18 +212,19 @@ function alertaSuave(t) {
     firebase.initializeApp(window.FRIGO.firebase);
     await firebase.auth().signInAnonymously();
     bd = firebase.firestore();
-    bd.collection("productos").onSnapshot(s => {
-      P = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.precio > 0).sort((a, b) => (a.ord || 0) - (b.ord || 0));
+    // "menu" es la copia pública del menú (sin costos) que publica la app del local.
+    bd.collection("menu").onSnapshot(s => {
+      P = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(p => p.precio > 0).sort((a, b) => (a.ord || 0) - (b.ord || 0));
       pintar();
     });
     bd.collection("sabores").onSnapshot(s => {
-      S = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      S = s.docs.map(d => ({ ...d.data(), id: d.id }));
       const sigue = S.some(x => x.activo);
       agotados = sigue ? S.filter(x => x.activo && (+x.baldes || 0) <= 0).map(x => x.nombre) : [];
       pintar();
     });
   } catch (e) {
-    $("#app").innerHTML = `<div class="brand">Frigo</div><i class="sw"></i>
+    $("#app").innerHTML = `<img class="logo" src="logo.png" alt="Frigo Shop · Heladería">
       <h1>No pudimos abrir el menú</h1>
       <p class="ayuda">Puede ser tu internet. Probá de nuevo en un rato, o llamanos y te atendemos por teléfono.</p>`;
   }

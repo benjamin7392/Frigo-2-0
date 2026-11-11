@@ -43,6 +43,7 @@ button{cursor:pointer}
 /* ---------- encabezado ---------- */
 header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:6px}
 .brand{font:400 34px/1 var(--disp)}
+.logo{display:block;height:56px;width:auto}
 .sw{display:block;height:5px;width:74px;border-radius:5px;background:var(--mag);margin:1px 0 0 5px}
 .est{text-align:right;font-size:12px;min-width:0}
 .est b{display:block;font-weight:600}
@@ -75,13 +76,14 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .btn[disabled]{opacity:.4}
 .btn.ghost{background:none;border:1.5px solid var(--line)}
 .btn.verde{background:var(--entra);color:#06281c}
+.list li .ls{min-width:0}.ls b,.ls small{overflow-wrap:anywhere}
 .fab small{display:block;font-size:11px;font-weight:600;margin-top:2px;letter-spacing:.02em}
 .btn.grande{font-size:20px;padding:18px;margin:0 0 12px}
 .tile-btn.libre{border-style:dashed}
 .tile-btn.sinp small{color:var(--mag)}
 .lnk{background:none;border:0;color:var(--yel);text-decoration:underline;font-size:13px;padding:2px 0}
 .list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.list li{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:11px 14px}
+.list li{min-width:0;display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:11px 14px}
 .list .ls{min-width:0}
 .list b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list small{display:block;color:var(--mute)}
@@ -109,7 +111,7 @@ nav button{background:none;border:0;color:var(--mute);font-size:11.5px;padding:8
 nav button.on{color:var(--teal);font-weight:600}
 nav button.on:after{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:22px;height:3px;border-radius:3px;background:var(--teal)}
 .fab{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;background:var(--mag)!important;color:#fff!important;border-radius:22px!important;height:54px;margin:0 6px;font-size:26px!important;font-weight:600;box-shadow:0 6px 18px rgba(192,48,122,.45)}
-.pin{position:absolute;top:4px;right:50%;transform:translateX(16px);min-width:17px;height:17px;border-radius:9px;background:var(--rojo);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;padding:0 4px}
+.pin{position:absolute;top:-6px;right:50%;transform:translateX(30px);min-width:17px;height:17px;border-radius:9px;background:var(--rojo);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;padding:0 4px}
 
 /* ---------- hoja inferior ---------- */
 .capa{position:fixed;inset:0;z-index:40;background:rgba(3,12,30,.72);display:flex;align-items:flex-end}
@@ -157,7 +159,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 <body>
 <main>
   <header>
-    <div><div class="brand">Frigo</div><i class="sw"></i></div>
+    <img class="logo" src="logo.png" alt="Frigo Shop · Heladería" width="104" height="70">
     <div class="est" id="est"></div>
   </header>
   <div id="avisos"></div>
@@ -183,14 +185,17 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "2.7";
+const VERSION = "3.0";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
 
-/* ---------- fechas: el día del negocio es el del celular ---------- */
+/* ---------- fechas ----------
+   El día del negocio termina a las 6 de la mañana: lo que se vende el sábado a la 1 de la
+   madrugada es del sábado, y el cierre de caja de esa noche lo incluye. */
+const CORTE_HORAS = 6;
 const diaDe = ts => { const d = new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); };
-const HOY = () => diaDe(Date.now());
+const HOY = () => diaDe(Date.now() - CORTE_HORAS * 3600000);
 const correrDia = (dia, n) => { const [a,m,d] = dia.split("-").map(Number); const x = new Date(a, m-1, d+n); return diaDe(x); };
 const lindo = dia => { const [a,m,d] = dia.split("-").map(Number); const x = new Date(a, m-1, d);
   return ["dom","lun","mar","mié","jue","vie","sáb"][x.getDay()] + " " + d + "/" + m; };
@@ -211,7 +216,7 @@ const suma = (a, k) => a.reduce((t, x) => t + (+x[k] || 0), 0);
    - cloud  : Firestore propio, si config.js trae las claves
    - local  : IndexedDB, solo este celular, 100% sin internet
    ============================================================ */
-const COLS = ["productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes", "viajes", "pedidos"];
+const COLS = ["faltantes", "productos", "sabores", "ventas", "gastos", "cierres", "ajustes", "fichajes", "viajes", "pedidos"];
 
 function depositoLocal() {
   const cache = {}, oyentes = {};
@@ -219,7 +224,7 @@ function depositoLocal() {
   let bd = null;
 
   const abrir = () => new Promise((ok, mal) => {
-    const p = indexedDB.open("frigo", 1);
+    const p = indexedDB.open("frigo", 2);
     p.onupgradeneeded = () => { const d = p.result; COLS.forEach(c => { if (!d.objectStoreNames.contains(c)) d.createObjectStore(c, { keyPath: "id" }); }); };
     p.onsuccess = () => ok(p.result);
     p.onerror = () => mal(p.error);
@@ -259,7 +264,7 @@ function depositoClaude(db) {
     async iniciar() {},
     ver(col, cb) {
       return db.collection(col).onSnapshot(
-        s => { this.enVivo = !s.metadata.fromCache; cb(s.docs.map(d => ({ id: d.id, ...d.data() }))); },
+        s => { this.enVivo = !s.metadata.fromCache; cb(s.docs.map(d => ({ ...d.data(), id: d.id }))); },
         () => aviso("No se pudo leer " + col + ". Revisá tu conexión.")
       );
     },
@@ -269,9 +274,11 @@ function depositoClaude(db) {
   };
 }
 
-// Cuánto pasado se trae cada colección. Acota la lectura para no salirse
-// nunca del plan gratuito, y alcanza de sobra para los reportes de 90 días.
-const VENTANA = { ventas: 150, gastos: 150, fichajes: 150, viajes: 150, cierres: 400, pedidos: 60 };
+// Cuánto pasado se escucha en vivo. Cada documento escuchado cuenta como lectura cada vez
+// que un celular abre la app: por eso en vivo va solo lo reciente, y la historia larga
+// (reportes, planilla, días viejos) se pide una sola vez cuando alguien la abre.
+const VIVO = 3;
+const VENTANA = { ventas: VIVO, gastos: VIVO, pedidos: VIVO, fichajes: 40, viajes: 40, cierres: 400 };
 
 function depositoFirestore(auth, bd) {
   let pend = 0;
@@ -284,12 +291,24 @@ function depositoFirestore(auth, bd) {
       return q.onSnapshot({ includeMetadataChanges: true }, s => {
         this.enVivo = !s.metadata.fromCache;
         if (col === "ventas") pend = s.docs.filter(d => d.metadata.hasPendingWrites).length;
-        cb(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        cb(s.docs.map(d => ({ ...d.data(), id: d.id })));
       }, e => { if (e && e.code === "permission-denied") aviso("Falta publicar las reglas de seguridad: mirá PASOS-NUBE.md, paso 4."); });
     },
     nuevoId() { return bd.collection("ventas").doc().id; },
-    guardar(col, id, datos) { return bd.doc(col + "/" + id).set({ ...datos, id }, { merge: true }); },
-    borrar(col, id) { return bd.doc(col + "/" + id).delete(); },
+    async traer(col, desde, hasta) {
+      const s = await bd.collection(col).where("dia", ">=", desde).where("dia", "<", hasta).get();
+      return s.docs.map(d => ({ ...d.data(), id: d.id }));
+    },
+    // Suma o resta sin pisar lo que haya cargado otro celular al mismo tiempo.
+    sumar(col, id, campo, n, extra) {
+      bd.doc(col + "/" + id).set({ ...(extra || {}), [campo]: firebase.firestore.FieldValue.increment(n) }, { merge: true }).catch(fallo);
+      return Promise.resolve();
+    },
+    // Firestore anota el cambio en este celular al instante y lo sube cuando puede (también sin señal).
+    // No se espera la confirmación del servidor: si no, la pantalla queda trabada hasta que responde.
+    // Si el servidor lo rechaza, Firestore lo deshace solo y se avisa.
+    guardar(col, id, datos) { bd.doc(col + "/" + id).set({ ...datos, id }, { merge: true }).catch(fallo); return Promise.resolve(); },
+    borrar(col, id) { bd.doc(col + "/" + id).delete().catch(fallo); return Promise.resolve(); },
   };
 }
 
@@ -319,10 +338,31 @@ const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro",
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 
 let D = null;                                  // depósito
-let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [], PD = [];
-let vista = "hoy", dia = HOY(), linea = "Ice Cream";
+// Lo escuchado en vivo (días recientes) y lo traído a pedido (historia). V y G son la unión.
+let VL = [], GL = [], HV = [], HG = [], histDesde = null, trayendo = null;
+const unir = (vivo, viejo) => {
+  const corte = correrDia(HOY(), -VIVO), m = new Map();
+  viejo.forEach(x => { if (x.dia < corte) m.set(x.id, x); });
+  vivo.forEach(x => m.set(x.id, x));
+  return [...m.values()].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+};
+async function cargarHistoria(desde) {
+  if (!D || !D.traer || (histDesde && histDesde <= desde)) return;
+  if (trayendo) return trayendo;
+  notificar("Trayendo días anteriores…");
+  const hasta = correrDia(HOY(), -VIVO);
+  trayendo = Promise.all([D.traer("ventas", desde, hasta), D.traer("gastos", desde, hasta)]).then(([v, g]) => {
+    HV = unir([], v.concat(HV)); HG = unir([], g.concat(HG));
+    histDesde = desde; V = unir(VL, HV); G = unir(GL, HG); pintar();
+  }).catch(e => notificar("No se pudieron traer los días anteriores. Revisá la conexión."))
+    .finally(() => { trayendo = null; });
+  return trayendo;
+}
+let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [], PD = [], FA = [];
+let vista = "hoy", dia = HOY(), linea = "Ice Cream", diaElegido = false;   // diaElegido: alguien eligió otro día a mano
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
-let precioPara = null;
+let precioPara = null, gastoCaja = true, guardandoGasto = false, cerrandoDia = false;
+const entregando = new Set();
 let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
 let cobrando = false, ultimaVenta = null, temporizador = null;
 let soloLectura = false, quien = "equipo", yo = null, relojVivo = null;
@@ -334,7 +374,7 @@ const setAjuste = (k, v) => D.guardar("ajustes", "cfg", { [k]: v });
 
 /* ---------- derivados ---------- */
 const delDia = (arr, d) => arr.filter(x => x.dia === d);
-const baldes = i => { const s = S.find(x => x.id === "s" + i); return s ? (+s.baldes || 0) : 0; };
+const baldes = i => { const s = S.find(x => x.id === "s" + i); return s ? Math.max(0, +s.baldes || 0) : 0; };
 const sigue = i => { const s = S.find(x => x.id === "s" + i); return !!(s && s.activo); };
 const stockCargado = () => MENU.some((n, i) => sigue(i));
 const semaforo = b => b < ROJO ? ["s-r", "Se acabó o casi"] : b < AMARILLO ? ["s-a", "Queda poco"] : ["s-v", "Hay"];
@@ -344,16 +384,21 @@ const agotados = () => MENU.filter((n, i) => sigue(i) && baldes(i) <= 0);
 const listar = (nombres, tope = 4) => nombres.length <= tope ? nombres.join(", ")
   : nombres.slice(0, tope).join(", ") + " y " + (nombres.length - tope) + " más";
 
+// Un retiro es plata que el dueño saca de la caja: baja el efectivo pero no es un gasto del negocio.
+const esRetiro = g => g.rubro === "Retiro";
 function resumen(d) {
-  const v = delDia(V, d), g = delDia(G, d);
+  const v = delDia(V, d), todos = delDia(G, d), g = todos.filter(x => !esRetiro(x));
   const ventas = suma(v, "total"), costo = suma(v, "costo"), gastos = suma(g, "monto");
-  return { v, g, ventas, costo, gastos, bruto: ventas - costo, ganancia: ventas - costo - gastos };
+  return { v, g, ventas, costo, gastos, retiros: suma(todos.filter(esRetiro), "monto"),
+           bruto: ventas - costo, ganancia: ventas - costo - gastos };
 }
+// Solo resta lo que salió de la caja (un alquiler pagado por transferencia no).
+const salidasDeCaja = d => suma(delDia(G, d).filter(x => x.caja !== false), "monto");
 const efectivoEsperado = d => {
-  const { v, g } = resumen(d);
-  return (+ajuste("fondo", 0)) + suma(v.filter(x => x.pago === "Efectivo"), "total") - suma(g, "monto");
+  const { v } = resumen(d);
+  return (+ajuste("fondo", 0)) + suma(v.filter(x => x.pago === "Efectivo"), "total") - salidasDeCaja(d);
 };
-const cierreDe = d => C.find(x => x.dia === d);
+const cierreDe = d => C.find(x => x.id === "c_" + d) || C.find(x => x.dia === d);
 
 /* ---------- roles ---------- */
 const ficha = correo => (window.FRIGO && window.FRIGO.gente && window.FRIGO.gente[(correo || "").toLowerCase()]) || null;
@@ -406,8 +451,10 @@ const metrosDe = v => {
 };
 const kmEntre = (persona, desde) => VJ.filter(v => v.persona === persona && v.dia >= desde).reduce((t, v) => t + metrosDe(v), 0);
 
+let saliendo = false;
 async function salirAEntregar() {
-  if (miViaje()) return;
+  if (miViaje() || saliendo) return;
+  saliendo = true; setTimeout(() => { saliendo = false; }, 15000);
   notificar("Buscando tu ubicación…");
   const pos = await donde();
   try {
@@ -418,6 +465,7 @@ async function salirAEntregar() {
     notificar(pos ? "Viaje empezado" : "Viaje empezado, pero sin señal de GPS");
     pintar();
   } catch (e) { fallo(e); }
+  saliendo = false;
 }
 async function volviDelViaje() {
   const v = miViaje(); if (!v) return;
@@ -522,7 +570,11 @@ function vHoy() {
     <button class="chip" onclick="moverDia(1)" ${hoyEs ? "disabled" : ""} aria-label="Día siguiente">›</button>
   </div>
 
-  <div class="hero" style="margin-top:10px">
+  ${!esDueno() ? `<div class="hero" style="margin-top:10px">
+    <span class="lab">Vendido ${hoyEs ? "hoy" : "ese día"}</span>
+    <div class="big tnum pos">${$$(r.ventas)}</div>
+    <span class="sub">${r.v.length} venta${r.v.length === 1 ? "" : "s"}</span>
+  </div>` : `<div class="hero" style="margin-top:10px">
     <span class="lab">Ganancia del día</span>
     <div class="big tnum ${r.ganancia < 0 ? "neg" : "pos"}">${$$(r.ganancia)}</div>
     <span class="sub">${r.v.length} venta${r.v.length === 1 ? "" : "s"} · ${r.g.length} gasto${r.g.length === 1 ? "" : "s"}</span>
@@ -534,7 +586,8 @@ function vHoy() {
       <div class="tile"><span>Costo del helado</span><b class="tnum">${$$(r.costo)}</b></div>
       <div class="tile"><span>Margen bruto</span><b class="tnum">${$$(r.bruto)}</b></div>
     </div>
-  </div>
+    ${r.retiros ? `<span class="sub">Retiraste ${$$(r.retiros)} de la caja (no cuenta como gasto)</span>` : ""}
+  </div>`}
 
   ${cr.length ? `<div class="urgente" style="margin-top:12px;cursor:pointer" onclick="ir('faltan')">Falta reponer: ${esc(listar(cr.map(x => x[0])))}</div>` : ""}
 
@@ -594,7 +647,7 @@ function listaViajes(persona, cual) {
       <small>${hora(v.salida)} → ${v.llegada ? hora(v.llegada) : "todavía en la calle"}</small>
       ${!v.puntos || v.puntos.length < 3 ? `<small>distancia en línea recta</small>` : ""}</div>
     <div class="r"><b class="tnum">${km(metrosDe(v))}</b><small>${reloj((v.llegada || Date.now()) - v.salida)}</small>
-      ${esDueno() ? `<br><button class="lnk" onclick="D.borrar('viajes','${v.id}')">Borrar</button>` : ""}</div></li>`).join("")}</ul>`;
+      ${esDueno() ? `<br><button class="lnk" onclick="seguro('¿Borrar este viaje?',()=>D.borrar('viajes','${v.id}'))">Borrar</button>` : ""}</div></li>`).join("")}</ul>`;
 }
 
 // Pantalla única del cadete: llegada, salida y viajes. Nada más.
@@ -608,9 +661,39 @@ function vJornada() {
 }
 
 const ESTADOS = { nuevo: "Entró recién", haciendo: "Lo están preparando", listo: "Listo para entregar" };
-const pendientes = () => PD.filter(p => p.estado !== "entregado" && p.estado !== "cancelado")
+// Solo los de hoy y ayer: un pedido abandonado hace días no debe quedar colgado para siempre.
+const pendientes = () => PD.filter(p => p.estado !== "entregado" && p.estado !== "cancelado" && p.dia >= correrDia(HOY(), -1))
   .sort((a, b) => a.ts - b.ts);
 const nuevos = () => PD.filter(p => p.estado === "nuevo").length;
+// Timbre de pedido nuevo: suena y vibra solo por los que llegan con la app abierta (no por los que ya estaban).
+let pedidosVistos = null, sonido = null;
+function timbre() {
+  try {
+    sonido = sonido || new (window.AudioContext || window.webkitAudioContext)();
+    if (sonido.state === "suspended") sonido.resume();
+    [0, 0.18, 0.36].forEach((t, i) => {
+      const o = sonido.createOscillator(), g = sonido.createGain();
+      o.type = "sine"; o.frequency.value = [880, 1175, 1568][i];
+      g.gain.setValueAtTime(0.0001, sonido.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.35, sonido.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, sonido.currentTime + t + 0.3);
+      o.connect(g).connect(sonido.destination); o.start(sonido.currentTime + t); o.stop(sonido.currentTime + t + 0.32);
+    });
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e) {}
+}
+// El navegador solo deja sonar después de un toque: se "despierta" el audio con el primero.
+addEventListener("pointerdown", () => { try { sonido = sonido || new (window.AudioContext || window.webkitAudioContext)(); sonido.resume(); } catch (e) {} }, { once: true });
+function avisarPedidosNuevos(lista) {
+  const ids = lista.filter(p => p.estado === "nuevo").map(p => p.id);
+  if (pedidosVistos === null) { pedidosVistos = new Set(ids); return; }
+  const llegaron = ids.filter(id => !pedidosVistos.has(id));
+  ids.forEach(id => pedidosVistos.add(id));
+  if (!llegaron.length || !puedeVender()) return;
+  timbre();
+  const p = lista.find(x => x.id === llegaron[0]);
+  notificar("Pedido nuevo" + (p && p.nombre ? " de " + String(p.nombre).slice(0, 30) : ""), "Ver", () => ir("pedidos"));
+}
 
 function vPedidos() {
   const abiertos = pendientes(), hechos = PD.filter(p => p.dia === dia && p.estado === "entregado");
@@ -618,26 +701,27 @@ function vPedidos() {
   ${abiertos.length ? `<ul class="list">${abiertos.map(p => `
     <li style="display:block;${p.estado === "nuevo" ? "border-color:var(--yel)" : ""}">
       <div style="display:flex;justify-content:space-between;gap:12px">
-        <div class="ls"><b>${p.numero} · ${esc(p.nombre)}</b>
+        <div class="ls"><b>${esc(p.numero)} · ${esc(p.nombre)}</b>
           <small>${esc(ESTADOS[p.estado] || p.estado)} · ${hora(p.ts)}</small>
           <small>${esc((p.items || []).map(i => i.n + (i.s && i.s.length ? " (" + i.s.join(", ") + ")" : "")).join("; "))}</small>
           <small>${p.entrega === "lleva" ? "Llevar a " + esc(p.direccion) : "Lo pasa a buscar"} · ${esc(p.telefono)}</small>
         </div>
-        <div class="r"><b class="tnum">${$$(p.total)}</b></div>
+        <div class="r"><b class="tnum">${$$(suma(itemsDelLocal(p), "p"))}</b></div>
       </div>
       <div class="row" style="margin-top:10px">
         ${p.estado === "nuevo" ? `<button class="chip" onclick="estadoPedido('${p.id}','haciendo')">Lo preparo</button>` : ""}
         ${p.estado === "haciendo" ? `<button class="chip" onclick="estadoPedido('${p.id}','listo')">Ya está listo</button>` : ""}
-        <button class="chip ok" onclick="entregarPedido('${p.id}')">Entregado y cobrado</button>
-        ${esDueno() ? `<button class="chip" onclick="estadoPedido('${p.id}','cancelado')">Cancelar</button>` : ""}
+        <button class="chip" onclick="seguro('¿Cancelar el pedido de ${esc(p.nombre).replace(/'/g, "")}?',()=>estadoPedido('${p.id}','cancelado'))">Cancelar</button>
       </div>
+      <p class="hint" style="margin:10px 0 6px">Entregado y cobrado con:</p>
+      <div class="row">${PAGOS.map(f => `<button class="chip ok" ${entregando.has(p.id) ? "disabled" : ""} onclick="entregarPedido('${p.id}','${f}')">${f}</button>`).join("")}</div>
     </li>`).join("")}</ul>`
     : `<p class="vacio">No hay pedidos esperando. Cuando entre uno, aparece acá solo.</p>`}
 
   <h2>Entregados ${dia === HOY() ? "hoy" : "el " + lindo(dia)}</h2>
   ${hechos.length ? `<ul class="list">${hechos.sort((a, b) => b.ts - a.ts).map(p => `
-    <li><div class="ls"><b>${p.numero} · ${esc(p.nombre)}</b><small>${hora(p.ts)}</small></div>
-    <b class="tnum r">${$$(p.total)}</b></li>`).join("")}</ul>` : `<p class="vacio">Todavía ninguno.</p>`}
+    <li><div class="ls"><b>${esc(p.numero)} · ${esc(p.nombre)}</b><small>${hora(p.ts)}${p.pago ? " · " + esc(p.pago) : ""}</small></div>
+    <b class="tnum r">${$$((V.find(v => v.id === "ped_" + p.id) || {}).total ?? suma(itemsDelLocal(p), "p"))}</b></li>`).join("")}</ul>` : `<p class="vacio">Todavía ninguno.</p>`}
 
   <div class="card" style="margin-top:18px">
     <b>El link para tus clientes</b>
@@ -652,25 +736,40 @@ async function copiarLink(b) {
 }
 const estadoPedido = (id, e) => D.guardar("pedidos", id, { estado: e }).catch(fallo);
 
-// Entregar un pedido lo convierte en venta: congela precios y descuenta el stock,
-// igual que una venta del mostrador.
-async function entregarPedido(id) {
-  const p = PD.find(x => x.id === id); if (!p) return;
+// Entregar un pedido lo convierte en venta, igual que una del mostrador.
+// Precio, costo y kilos salen SIEMPRE del menú del local, nunca de lo que mandó el cliente:
+// la página pública la puede tocar cualquiera.
+function itemsDelLocal(p) {
+  return (Array.isArray(p.items) ? p.items : []).slice(0, 20).map(i => {
+    const prod = P.find(x => x.nombre === i.n);
+    const sab = (Array.isArray(i.s) ? i.s : []).filter(n => MENU.includes(n)).slice(0, 6);
+    return prod ? { n: prod.nombre, p: prod.precio || 0, c: prod.costo || 0, kg: prod.kg || 0, s: sab }
+                : { n: String(i.n || "Producto").slice(0, 60), p: 0, c: 0, kg: 0, s: sab, desconocido: true };
+  });
+}
+async function entregarPedido(id, formaPago) {
+  const p = PD.find(x => x.id === id);
+  if (!p || p.estado === "entregado" || entregando.has(id)) return;
+  const items = itemsDelLocal(p), total = suma(items, "p");
+  if (items.some(i => i.desconocido)) { notificar("Hay un producto del pedido que ya no está en el menú: cobralo desde Vender."); return; }
+  entregando.add(id); pintar();
   try {
-    await D.guardar("ventas", D.nuevoId(), {
-      dia: HOY(), ts: Date.now(), por: quien, pago: "Efectivo", pedido: p.numero,
-      items: p.items || [], total: p.total, costo: (p.items || []).reduce((t, i) => t + (i.c || 0), 0),
+    // El id de la venta sale del pedido: aunque dos celulares lo toquen a la vez, queda una sola.
+    await D.guardar("ventas", "ped_" + id, {
+      dia: HOY(), ts: Date.now(), por: quien, pago: formaPago, pedido: String(p.numero || ""),
+      items: items.map(({ desconocido, ...i }) => i), total, costo: suma(items, "c"),
     });
     const bajas = {};
-    (p.items || []).forEach(i => {
-      if (!i.kg || !i.s || !i.s.length) return;
+    items.forEach(i => {
+      if (!i.kg || !i.s.length) return;
       const porSabor = i.kg / i.s.length / KG_BALDE;
       i.s.forEach(n => { const k = MENU.indexOf(n); if (k >= 0) bajas[k] = (bajas[k] || 0) + porSabor; });
     });
     for (const k of Object.keys(bajas)) await reponer(+k, -bajas[k], true);
-    await D.guardar("pedidos", id, { estado: "entregado" });
-    notificar("Pedido " + p.numero + " cobrado: " + $$(p.total));
-  } catch (e) { fallo(e); }
+    await D.guardar("pedidos", id, { estado: "entregado", pago: formaPago });
+    notificar("Pedido " + p.numero + " cobrado: " + $$(total) + (total !== p.total ? " (precio del menú actual)" : ""));
+  } catch (e) { fallo(e); entregando.delete(id); }
+  pintar();
 }
 
 function vPersonal() {
@@ -712,7 +811,7 @@ function vPersonal() {
     <li><div class="ls"><b>${esc(f.persona)}</b><small>${hora(f.entrada)} → ${f.salida ? hora(f.salida) : "sin marcar la salida"}</small></div>
     <div class="r"><b class="tnum">${reloj(trabajado(f))}</b>
       ${esDueno() && !f.salida ? `<br><button class="lnk" onclick="cerrarFichaje('${f.id}',Date.now())">Cerrar</button>` : ""}
-      ${esDueno() ? `<br><button class="lnk" onclick="D.borrar('fichajes','${f.id}')">Borrar</button>` : ""}</div></li>`).join("")}</ul>`
+      ${esDueno() ? `<br><button class="lnk" onclick="seguro('¿Borrar este registro de horario?',()=>D.borrar('fichajes','${f.id}'))">Borrar</button>` : ""}</div></li>`).join("")}</ul>`
     : `<p class="vacio">Sin jornadas ese día.</p>`}`;
 }
 
@@ -726,7 +825,7 @@ function vMov() {
     <button class="chip" onclick="moverDia(1)" ${dia === HOY() ? "disabled" : ""} aria-label="Día siguiente">›</button>
   </div>
   <label class="f" for="fecha">Ir a otro día</label>
-  <input id="fecha" type="date" value="${dia}" max="${HOY()}" onchange="dia=this.value||HOY();pintar()">
+  <input id="fecha" type="date" value="${dia}" max="${HOY()}" onchange="elegirDia(this.value)">
   <h2>Movimientos del día</h2>
   ${todo.length ? `<ul class="list">${todo.map(m => `
     <li>
@@ -737,13 +836,15 @@ function vMov() {
       </div>
       <div class="r">
         <b class="tnum ${m.t === "v" ? "pos" : "neg"}">${m.t === "v" ? "+" : "−"}${$$(m.total ?? m.monto).slice(1)}</b>
-        ${esDueno() ? `<br><button class="lnk" onclick="anular('${m.t}','${m.id}')">Anular</button>` : ""}
+        ${esDueno() ? `<br><button class="lnk" onclick="seguro('¿Anular este movimiento? No se puede deshacer.',()=>anular('${m.t}','${m.id}'))">Anular</button>` : ""}
       </div>
     </li>`).join("")}</ul>` : `<p class="vacio">Todavía no hay movimientos este día. Tocá el botón + para registrar.</p>`}`;
 }
 
 function vFaltan() {
-  const cr = criticos(), insumos = S.filter(x => x.tipo === "insumo");
+  const cr = criticos();
+  // Lo anotado antes vivía en "sabores"; se muestra igual hasta que se tache.
+  const insumos = FA.map(x => ({ ...x, col: "faltantes" })).concat(S.filter(x => x.tipo === "insumo").map(x => ({ ...x, col: "sabores" })));
   return `
   ${cr.length ? `<div class="urgente lat">¡REPONER YA! ${esc(cr.map(x => x[0]).join(", "))}</div>` : ""}
   ${!stockCargado() ? `<p class="hint">Todavía no seguís ningún sabor. Tocá <b>+1</b> o <b>+5</b> en los que quieras controlar: desde ahí la app te avisa cuando bajan. Los que no sigas no molestan ni bloquean ventas.</p>` : ""}
@@ -769,7 +870,7 @@ function vFaltan() {
     <button class="chip" onclick="agregarInsumo()" style="flex:none">Anotar</button>
   </div>
   ${insumos.length ? `<ul class="list" style="margin-top:10px">${insumos.map(x => `
-    <li><b>${esc(x.nombre)}</b><button class="lnk" onclick="D.borrar('sabores','${x.id}')">Ya lo compré</button></li>`).join("")}</ul>`
+    <li><b>${esc(x.nombre)}</b><button class="lnk" onclick="D.borrar('${x.col}','${x.id}')">Ya lo compré</button></li>`).join("")}</ul>`
     : `<p class="vacio">Nada pendiente.</p>`}`;
 }
 
@@ -824,7 +925,7 @@ function vRep() {
 
   return `<h2>Reportes</h2>
   <div class="row">${[[7, "7 días"], [30, "30 días"], [90, "90 días"]].map(([v, t]) => `
-    <button class="chip${n === v ? " on" : ""}" onclick="setAjuste('rango',${v})">${t}</button>`).join("")}</div>
+    <button class="chip${n === v ? " on" : ""}" onclick="setAjuste('rango',${v});cargarHistoria(correrDia(HOY(), -2 * ${v}))">${t}</button>`).join("")}</div>
 
   <div class="hero" style="margin-top:12px">
     <span class="lab">Ganancia de ${n} días</span>
@@ -865,13 +966,13 @@ function vCerrar() {
       <li><span>Efectivo contado a mano</span><b class="tnum">${$$(ci.contado)}</b></li>
     </ul>
     ${ci.nota ? `<p class="hint">Nota: ${esc(ci.nota)}</p>` : ""}
-    ${esDueno() ? `<button class="btn ghost" onclick="D.borrar('cierres','${ci.id}')">Reabrir el día</button>` : ""}`;
+    ${esDueno() ? `<button class="btn ghost" onclick="seguro('¿Reabrir el día? Vas a tener que volver a contar la caja.',()=>D.borrar('cierres','${ci.id}'))">Reabrir el día</button>` : ""}`;
 
   return `<h2>Cerrar el ${dia === HOY() ? "día" : lindo(dia)}</h2>
   <ul class="list">
     <li><span>Fondo fijo de caja</span><b class="tnum">${$$(ajuste("fondo", 0))}</b></li>
     <li><span>Ventas en efectivo</span><b class="tnum pos">${$$(suma(r.v.filter(x => x.pago === "Efectivo"), "total"))}</b></li>
-    <li><span>Gastos pagados de la caja</span><b class="tnum neg">${$$(r.gastos)}</b></li>
+    <li><span>Gastos y retiros pagados de la caja</span><b class="tnum neg">${$$(salidasDeCaja(dia))}</b></li>
     <li style="border-color:var(--yel)"><b>Debería haber</b><b class="tnum" style="font-size:19px">${$$(esperado)}</b></li>
   </ul>
   <label class="f" for="contado">¿Cuánto contaste de verdad?</label>
@@ -891,7 +992,7 @@ function vProd() {
   ${esDueno() ? `<p class="hint">En cada fila: precio de venta, costo y kilos que salen de la cámara.</p>` : `<p class="hint">Solo el dueño cambia precios.</p>`}
   <ul class="list">${P.map(p => `
     <li><div class="ls"><b>${esc(p.nombre)}</b><small>${esc(p.linea)}${p.mx ? ` · ${p.mx} sabor${p.mx > 1 ? "es" : ""}` : ""}</small>
-      ${esDueno() ? `<button class="lnk" onclick="D.borrar('productos','${p.id}')">Quitar</button>` : ""}</div>
+      ${esDueno() ? `<button class="lnk" onclick="seguro('¿Quitar ${esc(p.nombre).replace(/'/g, "")} del menú?',()=>D.borrar('productos','${p.id}'))">Quitar</button>` : ""}</div>
     <div class="r">${esDueno() ? `
       <input class="mini tnum" type="number" inputmode="decimal" step="any" value="${pesos(p.precio)}" aria-label="Precio de ${esc(p.nombre)}" onchange="editarProd('${p.id}','precio',this.value)">
       <input class="mini tnum" type="number" inputmode="decimal" step="any" value="${pesos(p.costo || 0)}" aria-label="Costo de ${esc(p.nombre)}" onchange="editarProd('${p.id}','costo',this.value)">
@@ -1006,6 +1107,12 @@ function hojaGasto() {
     <input id="gc" value="${esc(gastoTxt)}" oninput="gastoTxt=this.value;refrescarGasto()" placeholder="Ej. 20 litros de leche">
     <label class="f">Rubro</label>
     <div class="row">${RUBROS.map(r => `<button class="chip${r === gastoRubro ? " on" : ""}" onclick="gastoRubro='${r}';pintarHoja()">${r}</button>`).join("")}</div>
+    ${gastoRubro === "Retiro" ? `<p class="hint">Un retiro es plata que sacás de la caja: se descuenta del efectivo, pero no cuenta como gasto del negocio.</p>` : `
+    <label class="f">¿Salió de la caja?</label>
+    <div class="row">
+      <button class="chip${gastoCaja ? " on" : ""}" onclick="gastoCaja=true;pintarHoja()">Sí, de la caja</button>
+      <button class="chip${gastoCaja ? "" : " on"}" onclick="gastoCaja=false;pintarHoja()">No, se pagó aparte</button>
+    </div>`}
     <button class="btn" id="bg" onclick="registrarGasto()" ${t > 0 && gastoTxt.trim() ? "" : "disabled"}>
       ${t > 0 && gastoTxt.trim() ? `Registrar gasto de ${$$(t)}` : "Escribí el monto y el concepto"}</button>`;
 }
@@ -1074,7 +1181,7 @@ async function cobrar() {
     await D.guardar("ventas", id, venta);
     for (const i of Object.keys(bajas)) await reponer(+i, -bajas[i], true);
     ultimaVenta = { id, bajas };
-    ticket = []; cerrarHoja();
+    ticket = []; pago = "Efectivo"; cerrarHoja(); pintar();
     notificar("Venta de " + $$(venta.total) + " registrada", "Deshacer", deshacer);
   } catch (e) { fallo(e); }
   cobrando = false;
@@ -1091,27 +1198,37 @@ async function deshacer() {
 }
 async function registrarGasto() {
   const monto = cent(teclado || "0");
-  if (!(monto > 0) || !gastoTxt.trim()) return;
+  if (!(monto > 0) || !gastoTxt.trim() || guardandoGasto) return;
+  guardandoGasto = true;
+  const caja = gastoRubro === "Retiro" ? true : gastoCaja;
   try {
-    await D.guardar("gastos", D.nuevoId(), { dia: HOY(), ts: Date.now(), por: quien, concepto: gastoTxt.trim(), rubro: gastoRubro, monto });
-    teclado = ""; gastoTxt = ""; cerrarHoja(); notificar("Gasto de " + $$(monto) + " registrado");
+    await D.guardar("gastos", D.nuevoId(), { dia: HOY(), ts: Date.now(), por: quien, concepto: gastoTxt.trim(), rubro: gastoRubro, monto, caja });
+    teclado = ""; gastoTxt = ""; gastoCaja = true; cerrarHoja(); pintar();
+    notificar((gastoRubro === "Retiro" ? "Retiro de " : "Gasto de ") + $$(monto) + " registrado");
   } catch (e) { fallo(e); }
+  guardandoGasto = false;
 }
 async function anular(t, id) {
   try { await D.borrar(t === "v" ? "ventas" : "gastos", id); notificar("Movimiento anulado"); }
   catch (e) { fallo(e); }
 }
 async function reponer(i, n, callado) {
-  const id = "s" + i, actual = baldes(i), nuevo = Math.max(0, Math.round((actual + n) * 100) / 100);
+  // Una venta solo descuenta de los sabores que se siguen; los demás no se controlan.
+  if (n < 0 && !sigue(i)) return;
+  const id = "s" + i;
   // Seguir un sabor empieza al cargarle baldes; desde ahí el semáforo lo vigila aunque llegue a cero.
   const activo = sigue(i) || n > 0;
-  try { await D.guardar("sabores", id, { nombre: MENU[i], baldes: nuevo, ord: i, activo }); if (!callado) pintar(); }
-  catch (e) { if (!callado) fallo(e); }
+  try {
+    // Quien no es dueño solo toca "baldes" (las reglas no le dejan cambiar nada más).
+    if (D.sumar) await D.sumar("sabores", id, "baldes", n, esDueno() || !sigue(i) ? { nombre: MENU[i], ord: i, activo } : undefined);
+    else await D.guardar("sabores", id, { nombre: MENU[i], baldes: Math.max(0, baldes(i) + n), ord: i, activo });
+    if (!callado) pintar();
+  } catch (e) { if (!callado) fallo(e); }
 }
 function dejarDeSeguir(i) { D.guardar("sabores", "s" + i, { nombre: MENU[i], baldes: 0, ord: i, activo: false }).then(pintar).catch(fallo); }
 async function agregarInsumo() {
   const v = ($("#ins") || {}).value?.trim(); if (!v) return;
-  try { await D.guardar("sabores", D.nuevoId(), { tipo: "insumo", nombre: v, ord: 999 }); $("#ins").value = ""; }
+  try { await D.guardar("faltantes", D.nuevoId(), { nombre: v.slice(0, 80), por: quien, ts: Date.now() }); $("#ins").value = ""; pintar(); }
   catch (e) { fallo(e); }
 }
 function pintarDif() {
@@ -1123,9 +1240,11 @@ function pintarDif() {
 async function cerrarDia() {
   const campo = $("#contado").value;
   if (campo === "") { notificar("Contá la caja y escribí cuánto hay"); return; }
+  if (cerrandoDia || cierreDe(dia)) { notificar("Este día ya está cerrado"); return; }
+  cerrandoDia = true; setTimeout(() => { cerrandoDia = false; }, 4000);
   const contado = cent(campo), esperado = efectivoEsperado(dia);
   try {
-    await D.guardar("cierres", D.nuevoId(), { dia, ts: Date.now(), por: quien, esperado, contado, dif: contado - esperado, nota: $("#nota").value.trim() });
+    await D.guardar("cierres", "c_" + dia, { dia, ts: Date.now(), por: quien, esperado, contado, dif: contado - esperado, nota: $("#nota").value.trim() });
     notificar("Día cerrado"); pintar();
   } catch (e) { fallo(e); }
 }
@@ -1166,7 +1285,8 @@ function csv(filas) {
     return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }).join(";")).join("\n");
 }
-function exportar(tipo) {
+async function exportar(tipo) {
+  if (D && D.traer) await cargarHistoria(correrDia(HOY(), -400));   // la planilla lleva más de un año
   let texto, nombre;
   if (tipo === "csv") {
     const filas = [["Fecha","Hora","Tipo","Detalle","Sabores","Rubro o pago","Quien","Monto","Costo"]];
@@ -1181,7 +1301,8 @@ function exportar(tipo) {
     ]));
     texto = csv(filas); nombre = "frigo-movimientos-" + HOY() + ".csv";
   } else {
-    texto = JSON.stringify({ app: "FRIGO", version: VERSION, fecha: new Date().toISOString(), productos: P, sabores: S, ventas: V, gastos: G, cierres: C, ajustes: AJ }, null, 1);
+    texto = JSON.stringify({ app: "FRIGO", version: VERSION, fecha: new Date().toISOString(), productos: P, sabores: S, ventas: V, gastos: G, cierres: C, ajustes: AJ,
+      fichajes: FI, viajes: VJ, pedidos: PD, faltantes: FA }, null, 1);
     nombre = "frigo-copia-" + HOY() + ".json";
   }
   ultimoArchivo = { nombre, texto };
@@ -1234,9 +1355,7 @@ const PADRE = { rep: "mas", cerrar: "mas", prod: "mas", datos: "mas", personal: 
 
 function pintar() {
   if (!D) return;
-  // No repintar mientras alguien escribe en un campo.
-  const foco = document.activeElement;
-  if (foco && ["INPUT","TEXTAREA","SELECT"].includes(foco.tagName) && $("#app").contains(foco)) return;
+  if (!diaElegido) dia = HOY();     // pasadas las 6 de la mañana, "Hoy" pasa solo al día nuevo
 
   $("#est").innerHTML = (D.modo === "local"
       ? `<b class="pt">En este celular</b>`
@@ -1251,15 +1370,24 @@ function pintar() {
   $("#pinP").hidden = !nvs;
   $("#pinP").textContent = nvs;
 
+  // No se repinta la pantalla mientras alguien escribe en un campo (el encabezado y los avisos sí).
+  const foco = document.activeElement;
+  if (foco && ["INPUT","TEXTAREA","SELECT"].includes(foco.tagName) && $("#app").contains(foco)) return;
   if (esCadete() && !["jornada"].includes(vista)) vista = "jornada";
   const atras = PADRE[vista];
   $("#app").innerHTML = (atras ? `<button class="lnk" onclick="ir('${atras}')">‹ Volver a Más</button>` : "") + (VISTAS[vista] || vHoy)();
   $("#pie").textContent = "FRIGO " + VERSION + " · control interno, no reemplaza a tu contador";
   document.querySelectorAll("nav button[data-v]").forEach(b => b.classList.toggle("on", b.dataset.v === (PADRE[vista] || vista)));
-  if (vista === "cerrar") { const c = $("#contado"); if (c) c.focus({ preventScroll: true }); }
 }
-function ir(v) { vista = v; window.scrollTo(0, 0); pintar(); }
-function moverDia(n) { const d = correrDia(dia, n); if (d <= HOY()) { dia = d; pintar(); } }
+function ir(v) {
+  // Cambiar de pantalla suelta el campo que tenía el cursor (en iPhone el toque no lo suelta solo).
+  const foco = document.activeElement; if (foco && foco.blur && foco !== document.body) foco.blur();
+  vista = v; window.scrollTo(0, 0); pintar();
+  if (v === "rep") cargarHistoria(correrDia(HOY(), -2 * (+ajuste("rango", 7))));   // el período y el anterior, para comparar
+  else if (dia < correrDia(HOY(), -VIVO)) cargarHistoria(dia);
+}
+function moverDia(n) { const d = correrDia(dia, n); if (d <= HOY()) { elegirDia(d); } }
+function elegirDia(d) { dia = d || HOY(); diaElegido = dia !== HOY(); if (dia < correrDia(HOY(), -VIVO)) cargarHistoria(dia); pintar(); }
 function abrirHoja(t) { hojaTab = t; eligiendo = null; elegidos = []; precioPara = null; teclado = ""; pintarHoja(); }
 function cerrarHoja() { hojaTab = null; eligiendo = null; elegidos = []; precioPara = null; $("#capa").hidden = true; }
 
@@ -1284,6 +1412,8 @@ function aviso(texto, accion, fn) {
   d.appendChild(b);
   $("#avisos").appendChild(d);
 }
+// Para lo que no se deshace: una pregunta antes de borrar.
+function seguro(pregunta, fn) { if (confirm(pregunta)) fn(); }
 function fallo(e) {
   console.error(e);
   notificar(e && (e.code === "not_granted" || e.code === "permission-denied") ? "No tenés permiso para esto" : "No se pudo guardar. Probá de nuevo.");
@@ -1335,10 +1465,38 @@ function pantallaInstalar() {
     <p class="hint">En iPhone esto solo funciona desde Safari.</p></div>`;
 }
 
+let escuchas = [];
+/* Menú público: copia del menú SIN costos para la página de pedidos. Los clientes no pueden
+   leer "productos" (ahí están los costos). La mantiene al día la app del dueño, sola. */
+let menuPublicado = null, tMenu = null;
+const canon = o => JSON.stringify(Object.keys(o).sort().map(k => [k, o[k]]));
+function programarMenu() { if (enNube() && esDueno()) { clearTimeout(tMenu); tMenu = setTimeout(publicarMenu, 1500); } }
+async function publicarMenu() {
+  try {
+    const bd = firebase.firestore();
+    if (menuPublicado === null) {
+      const s = await bd.collection("menu").get();
+      menuPublicado = new Map(s.docs.map(d => [d.id, canon(d.data())]));
+    }
+    const quiere = new Map(P.filter(p => p.precio > 0).map(p => [p.id,
+      { nombre: p.nombre, linea: p.linea || "", mx: p.mx || 0, precio: p.precio, ord: p.ord || 0 }]));
+    for (const [id, d] of quiere) if (menuPublicado.get(id) !== canon(d)) {
+      menuPublicado.set(id, canon(d)); bd.doc("menu/" + id).set(d).catch(fallo);
+    }
+    for (const id of [...menuPublicado.keys()]) if (!quiere.has(id)) {
+      menuPublicado.delete(id); bd.doc("menu/" + id).delete().catch(fallo);
+    }
+  } catch (e) { menuPublicado = null; }
+}
 async function encender() {
-  const destinos = { productos: x => P = x, sabores: x => S = x, ventas: x => V = x, gastos: x => G = x,
-                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x, viajes: x => VJ = x, pedidos: x => PD = x };
-  COLS.forEach(col => D.ver(col, datos => {
+  const destinos = { faltantes: x => FA = x, productos: x => { P = x; programarMenu(); }, sabores: x => S = x, ventas: x => { VL = x; V = unir(x, HV); }, gastos: x => { GL = x; G = unir(x, HG); },
+                     cierres: x => C = x, ajustes: x => AJ = x, fichajes: x => FI = x, viajes: x => VJ = x, pedidos: x => { avisarPedidosNuevos(x); PD = x; } };
+  // Cada uno escucha solo lo que le corresponde ver (las reglas de la nube rechazan el resto).
+  escuchas.forEach(f => { try { f(); } catch (e) {} });
+  P = []; S = []; V = []; G = []; C = []; AJ = []; FI = []; VJ = []; PD = []; FA = [];
+  VL = []; GL = []; HV = []; HG = []; histDesde = null; pedidosVistos = null; menuPublicado = null;
+  const mias = enNube() && esCadete() ? ["fichajes", "viajes"] : COLS;
+  escuchas = mias.map(col => D.ver(col, datos => {
     destinos[col](datos.slice().sort((a, b) => (b.ts || b.entrada || 0) - (a.ts || a.entrada || 0) || (a.ord || 0) - (b.ord || 0)));
     if (col === "productos") P.sort((a, b) => (a.ord || 0) - (b.ord || 0));
     pintar();

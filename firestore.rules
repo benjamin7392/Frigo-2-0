@@ -1,63 +1,105 @@
 rules_version = '2';
+// FRIGO — reglas de seguridad. Pegar en Firebase › Firestore › Reglas › Publicar.
+// IMPORTANTE: si sumás o cambiás a alguien del equipo, cambialo acá Y en config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Quién entró y cómo.
-    function entro()    { return request.auth != null; }
-    // El equipo entra con usuario y clave. El cliente de la página de pedidos
-    // entra de forma anónima y no puede ver nada del negocio.
-    function equipo()   { return entro() && request.auth.token.firebase.sign_in_provider == 'password'; }
-    function dueno()    { return equipo() && request.auth.token.email == 'benjaes7392@gmail.com'; }
-    function miCorreo() { return request.auth.token.email; }
+    function entro()   { return request.auth != null; }
+    function correo()  { return request.auth.token.email; }
+    // El equipo entra con usuario y clave, y además tiene que estar en esta lista:
+    // aunque alguien se cree una cuenta por su lado, no entra a nada.
+    function conClave() { return entro() && request.auth.token.firebase.sign_in_provider == 'password'; }
+    function dueno()    { return conClave() && correo() == 'benjaes7392@gmail.com'; }
+    function vende()    { return conClave() && correo() in ['benjaes7392@gmail.com', 'guegui@frigo.app', 'camila@frigo.app']; }
+    function personal() { return conClave() && correo() in ['benjaes7392@gmail.com', 'guegui@frigo.app', 'camila@frigo.app', 'cadete@frigo.app']; }
+    function cambia(campos) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos); }
+    // Una hora cargada no puede estar en el futuro (con 10 minutos de margen por relojes desparejos).
+    // El pasado sí se acepta: lo cargado sin señal llega horas después.
+    function noFutura(t) { return t is number && t <= request.time.toMillis() + 600000; }
 
-    // El menú y los sabores los puede leer también quien hace un pedido.
-    match /productos/{id} {
-      allow read: if entro();
-      allow write: if dueno();
-    }
+    // Menú público (sin costos): lo lee quien hace un pedido; lo escribe la app del dueño.
+    match /menu/{id}      { allow read: if entro(); allow write: if dueno(); }
+    // Menú completo, con costos: solo quienes venden.
+    match /productos/{id} { allow read: if vende(); allow write: if dueno(); }
+
+    // Stock de sabores: el cliente lo lee para no ofrecer lo agotado.
+    // Quien vende solo toca los baldes: los descuenta al vender, y al deshacer una venta puede
+    // devolver hasta 1 balde por vez. Cargar mercadería nueva es cosa del dueño.
     match /sabores/{id} {
       allow read: if entro();
-      allow create, delete: if dueno();
+      allow create: if dueno();
+      allow delete: if dueno() || (vende() && resource.data.tipo == 'insumo');
       allow update: if dueno()
-        || (equipo()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['baldes'])
-            && request.resource.data.baldes <= resource.data.baldes);
+        || (vende() && cambia(['baldes']) && request.resource.data.baldes <= resource.data.baldes + 1);
+    }
+    // Cosas que faltan (cucuruchos, servilletas…): las anota y las tacha quien vende.
+    match /faltantes/{id} { allow read, create, delete: if vende(); }
+
+    match /ajustes/{id} { allow read: if vende(); allow write: if dueno(); }
+
+    // Plata. Quien vende puede deshacer su error en los primeros 10 minutos; después, solo el dueño.
+    function recien() { return request.time.toMillis() - resource.data.ts < 600000; }
+    match /ventas/{id} {
+      allow read: if vende();
+      allow create: if vende() && noFutura(request.resource.data.ts)
+        && request.resource.data.total is number && request.resource.data.total >= 0;
+      allow update: if dueno();
+      allow delete: if dueno() || (vende() && recien());
+    }
+    match /gastos/{id} {
+      allow read: if vende();
+      allow create: if vende() && noFutura(request.resource.data.ts)
+        && request.resource.data.monto is number && request.resource.data.monto > 0;
+      allow update: if dueno();
+      allow delete: if dueno() || (vende() && recien());
+    }
+    // Un cierre por día (su id es c_AAAA-MM-DD): nadie más que el dueño lo pisa o lo reabre.
+    match /cierres/{id} {
+      allow read: if vende();
+      allow create: if dueno() || (vende() && id == 'c_' + request.resource.data.dia && noFutura(request.resource.data.ts));
+      allow update, delete: if dueno();
     }
 
-    // Plata y gestión: solo el equipo. El dueño es el único que corrige o borra.
-    match /ajustes/{id} { allow read: if equipo(); allow write: if dueno(); }
-    match /ventas/{id}  { allow read, create: if equipo(); allow update, delete: if dueno(); }
-    match /gastos/{id}  { allow read, create: if equipo(); allow update, delete: if dueno(); }
-    match /cierres/{id} { allow read, create: if equipo(); allow update, delete: if dueno(); }
-
-    // Jornadas y viajes: cada uno marca lo suyo, nadie puede fichar por otro.
+    // Horarios y viajes: cada uno marca lo suyo. Al cerrar, solo puede cargar la salida
+    // (o la llegada y el recorrido del viaje): no puede correr la hora de entrada.
     match /fichajes/{id} {
-      allow read:   if equipo();
-      allow create: if equipo() && request.resource.data.correo == miCorreo();
-      allow update: if dueno() || (equipo() && resource.data.correo == miCorreo());
+      allow read:   if personal();
+      allow create: if dueno() || (personal() && request.resource.data.correo == correo()
+        && request.resource.data.salida == null && noFutura(request.resource.data.entrada));
+      allow update: if dueno()
+        || (personal() && resource.data.correo == correo() && resource.data.salida == null && cambia(['salida'])
+            && noFutura(request.resource.data.salida));
       allow delete: if dueno();
     }
     match /viajes/{id} {
-      allow read:   if equipo();
-      allow create: if equipo() && request.resource.data.correo == miCorreo();
-      allow update: if dueno() || (equipo() && resource.data.correo == miCorreo());
+      allow read:   if personal();
+      allow create: if dueno() || (personal() && request.resource.data.correo == correo()
+        && request.resource.data.llegada == null && noFutura(request.resource.data.salida));
+      allow update: if dueno()
+        || (personal() && resource.data.correo == correo() && resource.data.llegada == null
+            && cambia(['puntos', 'metros', 'llegada', 'hasta']));
       allow delete: if dueno();
     }
 
-    // Pedidos: el cliente crea el suyo y solo ve el suyo. El equipo los ve todos.
+    // Pedidos de clientes: el cliente crea el suyo y ve solo el suyo, con forma controlada.
+    // El precio que manda el cliente NO se usa: la app del local cobra con su propio menú.
     match /pedidos/{id} {
-      allow read: if equipo() || (entro() && resource.data.uid == request.auth.uid);
-      allow create: if entro()
+      allow read: if vende() || (entro() && resource.data.uid == request.auth.uid);
+      allow create: if dueno() || (entro()
+        && request.resource.data.keys().hasOnly(['id', 'numero', 'dia', 'ts', 'estado', 'uid', 'nombre', 'telefono', 'entrega', 'direccion', 'items', 'total'])
+        && request.resource.data.id == id
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.estado == 'nuevo'
-        && request.resource.data.total is number
-        && request.resource.data.total >= 0
-        && request.resource.data.nombre is string
-        && request.resource.data.nombre.size() <= 60
-        && request.resource.data.telefono.size() <= 30
-        && request.resource.data.direccion.size() <= 120
-        && request.resource.data.items.size() <= 20;
-      allow update: if equipo();
+        && request.resource.data.numero is int
+        && request.resource.data.dia is string && request.resource.data.dia.size() == 10
+        && request.resource.data.ts is number
+        && request.resource.data.total is number && request.resource.data.total >= 0
+        && request.resource.data.nombre is string && request.resource.data.nombre.size() <= 60
+        && request.resource.data.telefono is string && request.resource.data.telefono.size() <= 30
+        && request.resource.data.direccion is string && request.resource.data.direccion.size() <= 120
+        && request.resource.data.entrega in ['retira', 'lleva']
+        && request.resource.data.items is list && request.resource.data.items.size() <= 20);
+      allow update: if vende() && cambia(['estado', 'pago']);
       allow delete: if dueno();
     }
   }

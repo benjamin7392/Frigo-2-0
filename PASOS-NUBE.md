@@ -42,9 +42,13 @@ Las claves las elegís vos, mínimo 6 caracteres. En la app, los empleados escri
 > **Nunca un usuario compartido.** Si todos entran con el mismo, no vas a saber quién
 > cobró, quién fichó ni quién hizo cada viaje.
 
-Para agregar o sacar gente después: creás el usuario acá y me avisás para que lo cargue en
-`config.js` con su rol. Cuando alguien deja de trabajar, borrás su usuario en esta pantalla
-el mismo día.
+Para agregar o sacar gente después: creás el usuario acá y me avisás. Hay que cargarlo en
+**dos** lugares: `config.js` (qué ve en la app) y `firestore.rules` (qué le deja hacer la nube).
+Cuando alguien deja de trabajar, borrás su usuario en esta pantalla el mismo día.
+
+> **Cerrá el alta de cuentas.** En **Authentication → Settings → User actions**, destildá
+> **Enable create (sign-up)**. Así nadie puede crearse una cuenta por su lado. Igual, aunque
+> alguien lo lograra, las reglas solo dejan entrar a los cuatro correos de la lista.
 
 ## 3. Crear la base de datos
 
@@ -84,13 +88,18 @@ Para que funcione faltan dos cosas en la consola:
 1. **Security → Authentication → Sign-in method**: activá también **Anónimo**. Eso es lo que
    permite que alguien pida sin crearse una cuenta, y al mismo tiempo deja que las reglas
    distingan a un cliente del equipo.
-2. **Firestore → Reglas**: volvé a pegar `firestore.rules`, que cambió. Ahora separa al
-   equipo (entra con clave) del cliente (entra anónimo). El cliente solo puede leer el menú
-   y crear su propio pedido: no ve ventas, ni caja, ni horarios, ni los pedidos de otros.
+2. **Firestore → Reglas**: volvé a pegar `firestore.rules` (versión 3.0). Separa por rol:
+   el cliente solo lee el menú público (sin costos) y crea su propio pedido; el cadete solo
+   ve horarios y viajes; Guegui y Camila venden pero no cambian precios ni borran nada
+   pasados 10 minutos.
 
-El pedido entra al instante en la app del equipo, en la pestaña **Pedidos**, con un cartel
-amarillo. Cuando se entrega, se toca **Entregado y cobrado** y queda registrado como venta,
-descontando el stock igual que una venta del mostrador.
+El cliente ve los productos que tengan precio. La lista pública la publica sola la app del
+dueño: **abrí la app con tu usuario una vez** después de poner o cambiar precios.
+
+El pedido entra al instante en la app del equipo, en la pestaña **Pedidos**: suena, vibra y
+aparece un cartel. Al entregarlo se toca la forma de pago (**Efectivo**, **Tarjeta** o
+**Transferencia**) y queda como venta, al precio del menú del local (nunca al que mande el
+cliente), descontando el stock.
 
 ## 7. Listo
 

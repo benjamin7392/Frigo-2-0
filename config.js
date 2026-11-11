@@ -1,14 +1,14 @@
 /* ============================================================
    FRIGO — configuración
-   Mientras firebase.apiKey diga PEGAR_ACA, la app funciona igual
-   pero cada celular guarda lo suyo: sin roles ni control de horarios.
+   Conectada al proyecto frigo-27072. Estas claves son públicas por
+   diseño: lo que protege los datos son las reglas de Firestore.
    ============================================================ */
 window.FRIGO = {
   firebase: {
-    apiKey:     "PEGAR_ACA",
-    authDomain: "PEGAR_ACA",
-    projectId:  "PEGAR_ACA",
-    appId:      "PEGAR_ACA"
+    apiKey:     "AIzaSyB-inIgCwkHqhYPvNCjjCt63QFer0P3_FA",
+    authDomain: "frigo-27072.firebaseapp.com",
+    projectId:  "frigo-27072",
+    appId:      "1:337652706402:web:1713b7913c7ad85d23b53b"
   },
 
   /* Quién es quién.

@@ -204,7 +204,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "3.2";
+const VERSION = "3.3";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -350,8 +350,24 @@ const cargarScript = src => new Promise((ok, mal) => {
    ============================================================ */
 const MENU = ["Chocolate","Chocolate blanco","Chocolate Frigo","Chocolate Rocher","Chocolate a la cubana","Dulce de leche","Dulce de leche Crocante","Dulce de leche con Nuez","Dulce leche granizado","Dulce de leche Frigo","Tramontana","Flan","Frutilla","Frutilla Frigo","Americana","Vainilla","Cereza","Frambuesa","Bananita Dolca","Banana Split","Oreo","Roclets","Menta Granizada","Crema del Cielo","Durazno","Ananá","Limón","Mango","Sandía","Granizado","Frutos del bosque","Mantecol","Kinotos al whisky","Kinder"];
 // [nombre, cuántos sabores se eligen, en qué se mide ("b" bochas, "l" litros de pote), cuánto]
-const TAM = [["1 bocha",1,"b",1],["2 bochas",2,"b",2],["3 bochas",3,"b",3],["1/4 litro",2,"l",.25],["1/2 litro",3,"l",.5],["1 litro",4,"l",1]];
-const LINEAS = ["Ice Cream","Achilata premium","Otros"];
+const TAM = [["1/4 kg",2,"l",.25],["1/2 kg",3,"l",.5],["1 kg",4,"l",1],["1 bocha",1,"b",1],["2 bochas",2,"b",2],["3 bochas",3,"b",3],
+             ["1/4 litro",2,"l",.25],["1/2 litro",3,"l",.5],["1 litro",4,"l",1]];
+const LINEAS = ["Helados","Achilata","Palitos","Premium","Tortas","Promos","Extras","Otros","Ice Cream","Achilata premium"];
+
+/* Menú y precios reales de Frigo Shop (lista del dueño, 11/11/2026).
+   [id, línea, nombre, precio en pesos, gustos a elegir, kg de pote que salen de los baldes] */
+const MENU_REAL = [
+  ["h_q", "Helados", "Helado 1/4 kg", 4500, 2, .25], ["h_m", "Helados", "Helado 1/2 kg", 7500, 3, .5], ["h_k", "Helados", "Helado 1 kg", 13000, 4, 1],
+  ["a_q", "Achilata", "Achilata 1/4 kg", 4500], ["a_m", "Achilata", "Achilata 1/2 kg", 7500], ["a_k", "Achilata", "Achilata 1 kg", 13000],
+  ["l_agua", "Palitos", "Palito de agua", 1000], ["l_crema", "Palitos", "Palito de crema", 1200], ["l_bombon", "Palitos", "Palito bombón", 1500],
+  ["l_sang", "Palitos", "Sanguchito", 1500], ["l_escf", "Palitos", "Escocés Frigo", 2000],
+  ["r_suizo", "Premium", "Suizo", 2500], ["r_esc", "Premium", "Escocés", 2500], ["r_lomoro", "Premium", "Bomboncitos Lomoro", 9000], ["r_camely", "Premium", "Postre Camely", 15000],
+  ["t_torta", "Tortas", "Torta helada", 18000],
+  ["o_agua5", "Promos", "5 palitos de agua", 3500], ["o_crema5", "Promos", "5 palitos de crema", 4000], ["o_bombon5", "Promos", "5 palitos bombón", 5000],
+  ["o_cucu3", "Promos", "3 cucuruchones dulces", 2000], ["o_vas5", "Promos", "5 vasitos", 1000], ["o_doble3", "Promos", "3 conos dobles", 1000], ["o_amer3", "Promos", "3 conos americanos", 1000],
+  ["x_bano", "Extras", "Baño de chocolate", 500],
+];
+const MENU_VERSION = 2;
 const PAGOS = ["Efectivo","Tarjeta","Transferencia"];
 const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro","Otros"];
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
@@ -371,7 +387,7 @@ function baldesDe(p) {
 }
 function gastoTexto(p) {
   if (p.bochas) return p.bochas + (p.bochas > 1 ? " bochas" : " bocha");
-  if (p.litros) return p.litros + (p.litros === 1 ? " litro" : " de litro");
+  if (p.litros) return ({ .25: "1/4 kg", .5: "1/2 kg", 1: "1 kg" })[p.litros] || p.litros + " kg";
   const t = TAM.find(x => p.nombre && p.nombre.endsWith(" " + x[0]));
   if (t && p.mx) return t[0];
   return p.kg ? p.kg + " kg" : "no descuenta helado";
@@ -401,7 +417,7 @@ async function cargarHistoria(desde) {
   return trayendo;
 }
 let P = [], S = [], V = [], G = [], C = [], AJ = [], FI = [], VJ = [], PD = [], FA = [];
-let vista = "hoy", dia = HOY(), linea = "Ice Cream", diaElegido = false;   // diaElegido: alguien eligió otro día a mano
+let vista = "hoy", dia = HOY(), linea = "Helados", diaElegido = false;   // diaElegido: alguien eligió otro día a mano
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
 let precioPara = null, gastoCaja = true, guardandoGasto = false, cerrandoDia = false;
 const entregando = new Set();
@@ -1029,7 +1045,7 @@ function vFaltan() {
   ${cr.length ? `<div class="urgente${cr.some(x => x[2] <= NADA) ? " lat" : ""}">Poco o sin stock: ${esc(listar(cr.map(x => x[0]), 6))}</div>` : ""}
   <h2>Stock de sabores</h2>
   <p class="hint" style="margin-top:-4px">${cargo
-    ? `Cada venta descuenta sola (1 bocha = 1/${bochasPorBalde()} de balde, 1 litro = 1/${litrosPorBalde()}).${esDueno() ? " Cuando llega mercadería tocá <b>+1</b>; si al contar no coincide, <b>Corregir</b>." : ""}`
+    ? `Cada venta descuenta sola (1 kg = 1/${litrosPorBalde()} de balde, 1/4 kg = 1/${litrosPorBalde() * 4}).${esDueno() ? " Cuando llega mercadería tocá <b>+1</b>; si al contar no coincide, <b>Corregir</b>." : ""}`
     : esDueno() ? "Para empezar, tocá <b>Corregir</b> en cada sabor que tengas y escribí cuántos baldes hay. Los demás quedan sin stock." : "El dueño todavía no cargó el stock."}</p>
   <div class="row">
     <button class="chip${filtroStock === "todos" ? " on" : ""}" onclick="filtroStock='todos';pintar()">Todos (${MENU.length})</button>
@@ -1191,7 +1207,7 @@ function vProd() {
     <div class="card"><p class="hint" style="margin-top:0">Con esto la app calcula cuánto baja cada sabor. Si un día medís distinto, cambialo acá.</p>
       <div class="grid2">
         <label class="et">Bochas por balde<input class="tnum" type="number" inputmode="numeric" value="${bochasPorBalde()}" onchange="+this.value>0&&setAjuste('bochasBalde',+this.value)"></label>
-        <label class="et">Potes de 1 litro por balde<input class="tnum" type="number" inputmode="decimal" step="any" value="${litrosPorBalde()}" onchange="+this.value>0&&setAjuste('litrosBalde',+this.value)"></label>
+        <label class="et">Potes de 1 kg por balde<input class="tnum" type="number" inputmode="decimal" step="any" value="${litrosPorBalde()}" onchange="+this.value>0&&setAjuste('litrosBalde',+this.value)"></label>
       </div></div>` : ""}
   ${esDueno() ? `<h2>Agregar producto</h2><div class="card">
     <input id="pn" placeholder="Nombre (ej. Cucurucho especial)">
@@ -1200,7 +1216,7 @@ function vProd() {
       <input id="pc" type="number" inputmode="decimal" step="any" placeholder="Costo">
     </div>
     <div class="grid2" style="margin-top:8px">
-      <select id="pl">${LINEAS.map(l => `<option>${l}</option>`).join("")}</select>
+      <select id="pl">${LINEAS.slice(0, 8).map(l => `<option>${l}</option>`).join("")}</select>
       <input id="px" type="number" min="0" max="6" placeholder="Sabores a elegir">
     </div>
     <label class="et" style="margin-top:8px">¿Cuánto helado de los baldes lleva?
@@ -1446,18 +1462,42 @@ async function cerrarDia() {
     notificar("Día cerrado"); pintar();
   } catch (e) { fallo(e); }
 }
+// Carga (o recarga) el menú real con sus precios. Borra los productos de prueba viejos (p0_…, p1_…).
+async function cargarMenuReal(viejos, conStock) {
+  MENU_REAL.forEach(([id, linea, nombre, precio, mx = 0, litros = 0], k) =>
+    D.guardar("productos", id, { nombre, linea, precio: precio * 100, costo: (P.find(x => x.id === id) || {}).costo || 0, mx, litros, kg: 0, ord: k }));
+  (viejos || []).forEach(id => D.borrar("productos", id));
+  if (conStock) MENU.forEach((n, i) => D.guardar("sabores", "s" + i, { nombre: n, baldes: 1, ord: i, activo: true }));
+}
 async function sembrar() {
+  await cargarMenuReal(P.map(p => p.id).filter(id => /^p\d+_\d+$/.test(id)), false);
+  notificar("Menú de Frigo Shop cargado con sus precios.");
+  pintar();
+}
+/* Una sola vez: menú real + 1 balde de cada sabor para la prueba. En la nube se pregunta al
+   SERVIDOR si ya se hizo (no al caché del celular), así nunca vuelve a pisar el stock. */
+let migrando = false;
+async function migrarMenu() {
+  if (migrando || !D || !esDueno() || (window.FRIGO && window.FRIGO.sinMigrar)) return;   // sinMigrar: solo para pruebas
+  migrando = true;
   try {
-    for (let g = 0; g < 2; g++) for (let s = 0; s < TAM.length; s++) {
-      const [nom, mx, tipo, cant] = TAM[s];
-      // Achilata viene envasado: no se eligen gustos ni descuenta de los baldes.
-      const medida = g ? {} : (tipo === "b" ? { bochas: cant } : { litros: cant });
-      const id = "p" + g + "_" + s, ya = P.find(x => x.id === id);
-      await D.guardar("productos", id, { nombre: LINEAS[g] + " " + nom, linea: LINEAS[g], mx: g ? 0 : mx, kg: 0, ...medida,
-        precio: ya ? ya.precio || 0 : 0, costo: ya ? ya.costo || 0 : 0, ord: g * 10 + s });
+    let viejos;
+    if (enNube()) {
+      const bd = firebase.firestore();
+      const cfg = await bd.doc("ajustes/cfg").get({ source: "server" });
+      if (cfg.exists && (cfg.data().menu || 0) >= MENU_VERSION) return;
+      const ps = await bd.collection("productos").get({ source: "server" });
+      viejos = ps.docs.map(d => d.id).filter(id => /^p\d+_\d+$/.test(id));
+    } else {
+      if (+ajuste("menu", 0) >= MENU_VERSION) return;
+      viejos = P.map(p => p.id).filter(id => /^p\d+_\d+$/.test(id));
     }
-    notificar("Menú cargado. Ahora poné los precios.");
-  } catch (e) { fallo(e); }
+    await cargarMenuReal(viejos, true);
+    await setAjuste("menu", MENU_VERSION);
+    notificar("Cargué el menú y los precios de Frigo Shop, y 1 balde de cada sabor para la prueba.");
+    pintar();
+  } catch (e) { /* sin conexión o sin base todavía: se reintenta la próxima vez que abras */ }
+  finally { migrando = false; }
 }
 async function agregarProd() {
   const n = $("#pn").value.trim(), p = cent($("#pp").value);
@@ -1717,6 +1757,7 @@ async function encender() {
   if (enNube() && puedeViajar() && miViaje()) seguir();
   $("#nav").hidden = esCadete();
   pintar();
+  setTimeout(migrarMenu, 2500);
 }
 
 (async function arrancar() {

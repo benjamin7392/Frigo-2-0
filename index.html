@@ -95,6 +95,7 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;
 .stk .acc .lnk{margin-left:auto}
 .et{display:block;font-size:11.5px;color:var(--mute);text-align:left;margin-bottom:4px}
 .et input,.et select{display:block;margin-top:3px}
+.r small.auto{display:block;font-size:10.5px;color:var(--mute);text-align:right;margin-top:-2px}
 .mini.falta{border-color:var(--yel)}
 .fab small{display:block;font-size:11px;font-weight:600;margin-top:2px;letter-spacing:.02em}
 .btn.grande{font-size:20px;padding:18px;margin:0 0 12px}
@@ -204,7 +205,7 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    El dinero se guarda en centavos enteros: nunca en decimales.
    ============================================================ */
 
-const VERSION = "3.4";
+const VERSION = "3.5";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
@@ -371,7 +372,9 @@ const MENU_VERSION = 2;
 const PAGOS = ["Efectivo","Transferencia"];
 // Para mostrar totales: las formas de hoy más cualquier otra que aparezca en ventas viejas.
 const pagosEn = vs => [...new Set([...PAGOS, ...vs.map(v => v.pago).filter(Boolean)])];
-const RUBROS = ["Insumos","Proveedor","Sueldos","Servicios","Alquiler","Retiro","Otros"];
+// Rubros de salida de plata. "Mercadería" (baldes, palitos para revender) y "Retiro" bajan la caja
+// pero no son gasto: el costo de la mercadería entra recién cuando se vende.
+const RUBROS = ["Mercadería","Insumos","Sueldos","Alquiler","Luz","Agua","Gas","Internet","Nafta","Impuestos","Mantenimiento","Retiro","Otros"];
 const KG_BALDE = 10, ROJO = 2, AMARILLO = 4;
 /* Rendimiento real del balde de 10 litros, medido en el local (se cambia en Productos):
    salen unas 90 bochas o 7 potes de 1 litro. El pote lleva menos que 10/7 porque el helado
@@ -394,6 +397,10 @@ function gastoTexto(p) {
   if (t && p.mx) return t[0];
   return p.kg ? p.kg + " kg" : "no descuenta helado";
 }
+// Precio que se paga el balde de 10 litros (centavos). Con el rendimiento da el costo de cada pote.
+const costoBalde = () => +ajuste("costoBalde", 3500000) || 0;
+// Costo de un producto: el que cargó el dueño, o si no, lo que gasta de balde por el precio del balde.
+const costoDe = p => (p && p.costo > 0) ? p.costo : Math.round(baldesDe(p) * costoBalde());
 // Cuánto descontar de cada sabor por un ítem del ticket o de una venta guardada.
 const baldesItem = i => i.bal != null ? i.bal : (i.kg || 0) / KG_BALDE;
 
@@ -423,7 +430,7 @@ let vista = "hoy", dia = HOY(), linea = "Helados", diaElegido = false;   // diaE
 let ticket = [], pago = "Efectivo", eligiendo = null, elegidos = [];
 let precioPara = null, gastoCaja = true, guardandoGasto = false, cerrandoDia = false;
 const entregando = new Set();
-let hojaTab = "venta", teclado = "", gastoRubro = "Insumos", gastoTxt = "";
+let hojaTab = "venta", teclado = "", gastoRubro = "Mercadería", gastoTxt = "";
 let cobrando = false, ultimaVenta = null, temporizador = null;
 let soloLectura = false, quien = "equipo", yo = null, relojVivo = null;
 let rol = "dueño", conGps = false, vigia = null, viajeEnCurso = null, ultimoGuardado = 0;
@@ -453,10 +460,12 @@ const listar = (nombres, tope = 4) => nombres.length <= tope ? nombres.join(", "
 
 // Un retiro es plata que el dueño saca de la caja: baja el efectivo pero no es un gasto del negocio.
 const esRetiro = g => g.rubro === "Retiro";
+const esMercaderia = g => g.rubro === "Mercadería" || g.rubro === "Proveedor";
+const noEsGasto = g => esRetiro(g) || esMercaderia(g);
 function resumen(d) {
-  const v = delDia(V, d), todos = delDia(G, d), g = todos.filter(x => !esRetiro(x));
+  const v = delDia(V, d), todos = delDia(G, d), g = todos.filter(x => !noEsGasto(x));
   const ventas = suma(v, "total"), costo = suma(v, "costo"), gastos = suma(g, "monto");
-  return { v, g, ventas, costo, gastos, retiros: suma(todos.filter(esRetiro), "monto"),
+  return { v, g, ventas, costo, gastos, retiros: suma(todos.filter(esRetiro), "monto"), compras: suma(todos.filter(esMercaderia), "monto"),
            bruto: ventas - costo, ganancia: ventas - costo - gastos };
 }
 // Solo resta lo que salió de la caja (un alquiler pagado por transferencia no).
@@ -846,7 +855,7 @@ function itemsDelLocal(p) {
   return (Array.isArray(p.items) ? p.items : []).slice(0, 20).map(i => {
     const prod = P.find(x => x.nombre === i.n);
     const sab = (Array.isArray(i.s) ? i.s : []).filter(n => MENU.includes(n)).slice(0, 6);
-    return prod ? { n: prod.nombre, p: prod.precio || 0, c: prod.costo || 0, bal: baldesDe(prod), s: sab }
+    return prod ? { n: prod.nombre, p: prod.precio || 0, c: costoDe(prod), bal: baldesDe(prod), s: sab }
                 : { n: String(i.n || "Producto").slice(0, 60), p: 0, c: 0, bal: 0, s: sab, desconocido: true };
   });
 }
@@ -1127,6 +1136,27 @@ function vMas() {
   </div>`;
 }
 
+// Balance del período: lo que entra, lo que cuesta lo vendido, cada rubro de gasto y el resultado.
+function balance(dias) {
+  const rs = dias.map(resumen);
+  const ventas = suma(rs, "ventas"), costo = suma(rs, "costo"), gastos = rs.flatMap(r => r.g);
+  const porRubro = {};
+  gastos.forEach(g => porRubro[g.rubro || "Otros"] = (porRubro[g.rubro || "Otros"] || 0) + g.monto);
+  const rubros = Object.entries(porRubro).sort((a, b) => b[1] - a[1]);
+  const totGastos = suma(gastos, "monto"), res = ventas - costo - totGastos;
+  const compras = suma(rs, "compras"), retiros = suma(rs, "retiros");
+  const fila = (t, v, cl = "", fuerte) => `<li${fuerte ? ' style="border-color:var(--yel)"' : ""}><span>${fuerte ? `<b>${t}</b>` : t}</span><b class="tnum ${cl}">${v}</b></li>`;
+  return `<h2>Balance</h2>
+  <ul class="list">
+    ${fila("Ventas", $$(ventas), "pos")}
+    ${fila("Costo de lo vendido", "−" + $$(costo), "neg")}
+    ${fila("Margen bruto", $$(ventas - costo), "", true)}
+    ${rubros.map(([r, m]) => fila(esc(r), "−" + $$(m), "neg")).join("")}
+    ${fila("Resultado", $$(res), res < 0 ? "neg" : "pos", true)}
+  </ul>
+  ${compras || retiros ? `<p class="hint">${compras ? `Pagaste ${$$(compras)} en mercadería: no se resta acá, porque su costo ya entra cuando se vende. ` : ""}${retiros ? `Retiraste ${$$(retiros)} (no es gasto del negocio).` : ""}</p>` : ""}
+  ${P.some(p => p.precio && !costoDe(p)) ? `<p class="hint">Hay productos sin costo (palitos, premium, promos…): hasta que lo cargues en Precios, su costo cuenta como $0 y el resultado sale más alto de lo real.</p>` : ""}`;
+}
 function vRep() {
   const n = +ajuste("rango", 7);
   const dias = Array.from({ length: n }, (_, i) => correrDia(HOY(), -(n - 1 - i)));
@@ -1161,6 +1191,8 @@ function vRep() {
       <div class="tile"><span>Gastos</span><b class="tnum neg">${$$(act.gastos)}</b></div>
     </div>
   </div>
+
+  ${balance(dias)}
 
   <h2>Ganancia por día</h2>
   <div class="card">${barras(serie, { color: "var(--teal)" })}</div>
@@ -1278,7 +1310,7 @@ function vProd() {
     ${esDueno() ? `<button class="btn" onclick="sembrar()">Cargar el menú de FRIGO</button>` : `<p class="vacio">Pedile al dueño que cargue el menú.</p>`}`;
   const sinPrecio = P.filter(p => !p.precio).length;
   return `<h2>Precios</h2>
-  ${esDueno() ? `<p class="hint">Escribí el precio de venta de cada cosa. El costo es opcional: sirve para ver la ganancia.
+  ${esDueno() ? `<p class="hint">Escribí el precio de venta de cada cosa. El costo sirve para ver la ganancia: el de los helados sale solo del precio del balde.
     ${sinPrecio ? `<br><b style="color:var(--yel)">Faltan ${sinPrecio} precio${sinPrecio > 1 ? "s" : ""}.</b> Lo que no tiene precio no aparece en los pedidos de clientes.` : ""}</p>`
     : `<p class="hint">Solo el dueño cambia precios.</p>`}
   ${LINEAS.filter(l => P.some(p => p.linea === l)).map(l => `<h2 style="font-size:16px">${esc(l)}</h2>
@@ -1288,11 +1320,14 @@ function vProd() {
       ${esDueno() ? `<button class="lnk" onclick="seguro('¿Quitar ${esc(p.nombre).replace(/'/g, "")} del menú?',()=>D.borrar('productos','${p.id}'))">Quitar</button>` : ""}</div>
     <div class="r">${esDueno() ? `
       <label class="et">Precio $<input class="mini tnum${p.precio ? "" : " falta"}" type="number" inputmode="decimal" step="any" value="${p.precio ? pesos(p.precio) : ""}" placeholder="0" aria-label="Precio de ${esc(p.nombre)}" onchange="editarProd('${p.id}','precio',this.value)"></label>
-      <label class="et">Costo $<input class="mini tnum" type="number" inputmode="decimal" step="any" value="${p.costo ? pesos(p.costo) : ""}" placeholder="—" aria-label="Costo de ${esc(p.nombre)}" onchange="editarProd('${p.id}','costo',this.value)"></label>`
+      <label class="et">Costo $<input class="mini tnum" type="number" inputmode="decimal" step="any" value="${p.costo ? pesos(p.costo) : ""}" placeholder="${costoDe(p) ? Math.round(pesos(costoDe(p))) : "—"}" aria-label="Costo de ${esc(p.nombre)}" onchange="editarProd('${p.id}','costo',this.value)"></label>
+      ${!p.costo && costoDe(p) ? `<small class="auto">del balde</small>` : ""}`
       : `<b class="tnum">${$$(p.precio)}</b>`}</div></li>`).join("")}</ul>`).join("")}
-  ${esDueno() ? `<h2>Rendimiento del balde de 10 litros</h2>
-    <div class="card"><p class="hint" style="margin-top:0">Con esto la app calcula cuánto baja cada sabor. Si un día medís distinto, cambialo acá.</p>
-      <div class="grid2">
+  ${esDueno() ? `<h2>El balde de 10 litros</h2>
+    <div class="card"><p class="hint" style="margin-top:0">Con esto la app calcula cuánto baja cada sabor y cuánto te cuesta cada pote
+      (hoy: 1 kg = ${$$(Math.round(costoBalde() / litrosPorBalde()))}). Los costos en gris salen de acá; si escribís uno, manda el tuyo.</p>
+      <label class="et">Precio del balde $<input class="tnum" type="number" inputmode="decimal" step="any" value="${pesos(costoBalde())}" onchange="+this.value>0&&setAjuste('costoBalde',cent(this.value))"></label>
+      <div class="grid2" style="margin-top:8px">
         <label class="et">Bochas por balde<input class="tnum" type="number" inputmode="numeric" value="${bochasPorBalde()}" onchange="+this.value>0&&setAjuste('bochasBalde',+this.value)"></label>
         <label class="et">Potes de 1 kg por balde<input class="tnum" type="number" inputmode="decimal" step="any" value="${litrosPorBalde()}" onchange="+this.value>0&&setAjuste('litrosBalde',+this.value)"></label>
       </div></div>` : ""}
@@ -1423,7 +1458,7 @@ function hojaGasto() {
 function tocarProducto(id) {
   const p = P.find(x => x.id === id); if (!p) return;
   if (!p.precio) { precioPara = p; teclado = ""; pintarHoja(); return; }
-  if (!p.mx) { ticket.push({ n: p.nombre, p: p.precio, c: p.costo || 0, bal: baldesDe(p), s: [] }); pintarHoja(); return; }
+  if (!p.mx) { ticket.push({ n: p.nombre, p: p.precio, c: costoDe(p), bal: baldesDe(p), s: [] }); pintarHoja(); return; }
   eligiendo = p; elegidos = []; pintarHoja();
 }
 function tocarSabor(i) {
@@ -1434,7 +1469,7 @@ function tocarSabor(i) {
   pintarHoja();
 }
 function sumarAlTicket() {
-  ticket.push({ n: eligiendo.nombre, p: eligiendo.precio, c: eligiendo.costo || 0, bal: baldesDe(eligiendo), s: elegidos.slice() });
+  ticket.push({ n: eligiendo.nombre, p: eligiendo.precio, c: costoDe(eligiendo), bal: baldesDe(eligiendo), s: elegidos.slice() });
   eligiendo = null; elegidos = []; pintarHoja();
 }
 function confirmarImporte() {
@@ -1443,7 +1478,7 @@ function confirmarImporte() {
   if (p === "libre") { ticket.push({ n: "Venta por importe", p: t, c: 0, bal: 0, s: [] }); pintarHoja(); return; }
   if (esDueno()) D.guardar("productos", p.id, { precio: t }).catch(() => {});
   const prod = { ...p, precio: t };
-  if (!prod.mx) { ticket.push({ n: prod.nombre, p: t, c: prod.costo || 0, bal: baldesDe(prod), s: [] }); pintarHoja(); return; }
+  if (!prod.mx) { ticket.push({ n: prod.nombre, p: t, c: costoDe(prod), bal: baldesDe(prod), s: [] }); pintarHoja(); return; }
   eligiendo = prod; elegidos = []; pintarHoja();
 }
 function tocarTecla(k) {
